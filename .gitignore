@@ -7,10 +7,8 @@
 # 忽略存文件夹
 mytools/
 checkpoints/
-teacher_logits_2000/
 weights/
 **/weights/
-**/teacher_logits_2000/
 **/checkpoints/
 **/mytools/
 

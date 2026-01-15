@@ -16,9 +16,9 @@ json_file_path = os.path.join(current_dir, 'preprocess', 'nslt_2000.json')
 teach_weights_path = os.path.join(current_dir, 'checkpoints', 'nslt_2000_018216_0.448072.pt')
 
 DATA_ROOT = data_root_path
-# 2. 你的 JSON 路径
+# 2. JSON 路径
 JSON_FILE = json_file_path
-# 3. 你的最强教师模型路径
+# 3. 最强教师模型路径
 TEACHER_WEIGHTS = teach_weights_path
 # 4. 结果保存位置
 SAVE_DIR = 'teacher_logits_2000'
@@ -36,7 +36,6 @@ def run_extraction():
 
     # 3. 加载数据集
     # 注意：必须用 'train' set，因为我们要蒸馏训练集
-    # 注意：shuffle=False，必须按顺序提取，方便后续通过文件名对齐
     test_transforms = transforms.Compose([videotransforms.CenterCrop(224)])
     dataset = Dataset(JSON_FILE, 'train', DATA_ROOT, 'rgb', test_transforms)
 
@@ -61,21 +60,19 @@ def run_extraction():
     i3d.eval()  # 开启评估模式 (关闭 Dropout/BN 更新)
 
     # 5. 开始提取循环
-    with torch.no_grad():  # 这一步很关键，不计算梯度，省显存且速度快
+    with torch.no_grad():
         for i, data in enumerate(dataloader):
-            # 获取数据 (根据你的 Dataset 返回值调整)
+            # 获取数据
             # 通常是 inputs, labels, video_id, ...
             inputs, labels, video_id = data
 
             inputs = inputs.to(device)  # inputs shape: (1, 3, T, 224, 224)
 
             # --- 模型推理 ---
-            # I3D 输出通常是 (Batch, Classes, Time) -> (1, 2000, T)
             per_frame_logits = i3d(inputs)
 
             # --- 特征聚合 ---
             # 我们需要视频级的特征，所以在时间维度 T 上取平均
-            # 结果变为 (1, 2000)
             video_logits = torch.mean(per_frame_logits, dim=2)
 
             # --- 保存 ---
@@ -90,7 +87,7 @@ def run_extraction():
             if i % 100 == 0:
                 print(f"进度: {i}/{len(dataset)} - 已保存 {vid_str}.npy")
 
-    print("✅ 所有教师特征提取完毕！")
+    print("所有教师特征提取完毕！")
 
 
 if __name__ == '__main__':
