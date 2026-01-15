@@ -1,2 +1,14 @@
+# 忽略 PyTorch 模型权重
+*.pt
+*.pth
+*.ckpt
+
+# 忽略存放权重的文件夹
+checkpoints/
+weights/
+**/weights/
+**/checkpoints/
+
+# 忽略数据文件夹 (如果之前没加)
 data/
 .idea/
