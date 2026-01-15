@@ -89,7 +89,8 @@ def make_dataset(split_file, split, root, mode, num_classes):
 
     i = 0
     for vid in data.keys():
-        if data[vid]['subset'] != "test":
+        # if data[vid]['subset'] != "test":
+        if data[vid]['subset'] != split:
             continue
         video_path = os.path.join(root, vid + '.mp4')
         if not os.path.exists(video_path):
