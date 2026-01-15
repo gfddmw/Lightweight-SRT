@@ -2,6 +2,7 @@
 *.pt
 *.pth
 *.ckpt
+*.pptx
 
 # 忽略存放权重的文件夹
 checkpoints/
