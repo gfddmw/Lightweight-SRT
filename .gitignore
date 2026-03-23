@@ -12,3 +12,11 @@ mytools/
 # 忽略数据文件夹 (如果之前没加)
 data/
 .idea/
+
+# 忽略 Gradle 缓存
+.gradle/
+
+# 忽略所有的 PyTorch 模型文件
+*.pt
+
+local.properties

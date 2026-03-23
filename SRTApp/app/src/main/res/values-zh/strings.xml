@@ -1,0 +1,50 @@
+<resources>
+    <string name="app_name">手语翻译器</string>
+    
+    <!-- SRTScreen -->
+    <string name="sign_tracking_active">手语追踪已启用</string>
+    <string name="start_signing">开始打手语...</string>
+    <string name="to">到</string>
+    <string name="flip_camera">翻转摄像头</string>
+    <string name="settings">设置</string>
+    <string name="language">语言</string>
+    <string name="type_back">键盘输入</string>
+
+    <!-- SettingsScreen -->
+    <string name="settings_title">设置</string>
+    <string name="back">返回</string>
+    <string name="cancel">取消</string>
+    
+    <string name="header_general">常规</string>
+    <string name="app_language">应用语言</string>
+    
+    <string name="header_recognition">识别</string>
+    <string name="sign_language_standard">手语标准</string>
+    <string name="output_language">输出语言</string>
+    
+    <string name="header_visuals">视觉与性能</string>
+    <string name="show_skeleton_overlay">显示骨骼图层</string>
+    <string name="show_skeleton_subtitle">在相机上实时绘制手部关键点</string>
+    <string name="confidence_threshold">置信度阈值</string>
+    <string name="confidence_subtitle">检测所需的最小概率</string>
+    
+    <string name="header_about">关于</string>
+    <string name="version">版本</string>
+    
+    <!-- Languages & Standards -->
+    <string name="lang_english">英语</string>
+    <string name="lang_chinese">中文</string>
+    <string name="lang_spanish">西班牙语</string>
+    <string name="lang_french">法语</string>
+    <string name="lang_simplified_chinese">简体中文</string>
+    
+    <string name="std_asl">ASL (美式手语)</string>
+    <string name="std_csl">CSL (中国手语)</string>
+    <string name="std_bsl">BSL (英式手语)</string>
+    <string name="std_isl">ISL (国际手语)</string>
+    
+    <!-- Toasts -->
+    <string name="camera_permission_denied">需要相机权限以进行手语识别</string>
+    <string name="photo_save_success">照片保存成功: %s</string>
+    <string name="photo_save_failed">照片保存失败: %s</string>
+</resources>
