@@ -1,31 +1,37 @@
 package com.example.srt_app.ui
 
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FlipCameraIos
-import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.srt_app.R
-import com.example.srt_app.ui.theme.CharcoalBackground
-import com.example.srt_app.ui.theme.GlowingBlue
-import com.example.srt_app.ui.theme.GrayText
-import com.example.srt_app.ui.theme.PureWhite
+import com.example.srt_app.ui.theme.*
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 
@@ -34,149 +40,211 @@ fun SRTScreen(
     translationResult: String,
     onStartCamera: (PreviewView) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToProfile: () -> Unit,
+    onNavigateToHistory: () -> Unit,
     onCapture: () -> Unit = {},
     onFlipCamera: () -> Unit = {},
     onTypeBackSend: (String) -> Unit = {},
     showSkeleton: Boolean = true,
     handLandmarks: HandLandmarkerResult? = null,
-    signLanguage: String = "ASL (American)",
-    outputLanguage: String = "English"
+    signLanguage: String = "ASL",
+    outputLanguage: String = "en"
 ) {
-    // Extract short name for display (e.g., "ASL (American)" -> "ASL")
-    val signShort = signLanguage.split(" ").first()
-    val outputShort = outputLanguage.split(" ").first()
+    val signShort = signLanguage
+    val outputShort = if (outputLanguage == "en") "EN" else "ZH"
+    
+    var showTypeBackDialog by remember { mutableStateOf(false) }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(CharcoalBackground)
+            .background(SurfaceDim)
     ) {
-        // 1. Top 70% - Camera Feed & Skeleton Overlay
-        Box(
-            modifier = Modifier
-                .weight(0.7f)
-                .fillMaxWidth()
-        ) {
-            CameraPreview(onStartCamera)
-
-            // Subtle Glowing Skeleton Overlay
-            if (showSkeleton && handLandmarks != null) {
-                SkeletonOverlay(handLandmarks)
-            }
-
-            // Shutter & Flip Buttons
-            Row(
+        Column(modifier = Modifier.fillMaxSize()) {
+            // 1. Camera Section (approx 80% height)
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Spacer to balance the layout
-                Spacer(modifier = Modifier.size(48.dp))
-
-                IconButton(
-                    onClick = onCapture,
-                    modifier = Modifier
-                        .size(72.dp)
-                        .background(Color.White.copy(alpha = 0.3f), shape = MaterialTheme.shapes.extraLarge)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .background(Color.White, shape = MaterialTheme.shapes.extraLarge)
-                    )
-                }
-
-                IconButton(
-                    onClick = onFlipCamera,
-                    modifier = Modifier
-                        .padding(start = 16.dp)
-                        .size(48.dp)
-                        .background(Color.Black.copy(alpha = 0.4f), shape = CircleShape)
-                ) {
-                    Icon(
-                        Icons.Default.FlipCameraIos,
-                        contentDescription = stringResource(R.string.flip_camera),
-                        tint = Color.White
-                    )
-                }
-            }
-            // Top Status Label
-            Surface(
-                color = Color.Black.copy(alpha = 0.4f),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp),
-                shape = MaterialTheme.shapes.extraLarge
-            ) {
-                Text(
-                    text = stringResource(R.string.sign_tracking_active),
-                    color = GlowingBlue,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-        }
-
-        // 2. Bottom 30% - Translation Area
-        Column(
-            modifier = Modifier
-                .weight(0.3f)
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Translated Text
-            Text(
-                text = if (translationResult.isEmpty()) stringResource(R.string.start_signing) else translationResult,
-                color = PureWhite,
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 32.sp,
-                    lineHeight = 40.sp
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Bottom Navigation Bar
-            Row(
-                modifier = Modifier
+                    .weight(0.8f)
                     .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.settings), tint = GrayText)
+                CameraPreview(onStartCamera)
+
+                // Skeleton Overlay
+                if (showSkeleton && handLandmarks != null) {
+                    SkeletonOverlay(handLandmarks)
                 }
 
-                Button(
-                    onClick = onNavigateToSettings,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    contentPadding = PaddingValues(0.dp)
+                // Video Gradient Overlay (Dark bottom)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, SurfaceDim.copy(alpha = 0.8f)),
+                                startY = 400f
+                            )
+                        )
+                )
+
+                // Technical Metadata Badges (Top Right)
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 100.dp, end = 24.dp),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Translate, contentDescription = stringResource(R.string.language), tint = PrimaryBlue, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("$signShort ${stringResource(R.string.to)} $outputShort", color = PrimaryBlue, fontWeight = FontWeight.SemiBold)
+                    MetadataBadge(text = stringResource(R.string.sign_tracking_active), isGlow = true)
+                    
+                    // Quick Language Switcher Badge
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+                        modifier = Modifier.clickable { onNavigateToSettings() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(signShort, color = PrimaryColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, tint = OnSurfaceVariant, modifier = Modifier.size(12.dp))
+                            Text(outputShort, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
                     }
                 }
-
-                var showTypeBackDialog by remember { mutableStateOf(false) }
-                IconButton(onClick = { showTypeBackDialog = true }) {
-                    Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.type_back), tint = GrayText)
-                }
-
-                if (showTypeBackDialog) {
-                    TypeBackDialog(
-                        onDismiss = { showTypeBackDialog = false },
-                        onSend = { text ->
-                            onTypeBackSend(text)
-                            showTypeBackDialog = false
-                        }
-                    )
+                
+                // Camera controls
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 16.dp, end = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    IconButton(
+                        onClick = onCapture,
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = "Capture", tint = Color.White)
+                    }
+                    
+                    IconButton(
+                        onClick = onFlipCamera,
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.FlipCameraIos, contentDescription = stringResource(R.string.flip_camera), tint = Color.White)
+                    }
                 }
             }
+
+            // 2. Translation Section (approx 20% height)
+            Box(
+                modifier = Modifier
+                    .weight(0.2f)
+                    .fillMaxWidth()
+                    .background(SurfaceContainerLow)
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.live_translation).uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PrimaryColor,
+                            letterSpacing = 2.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Type Back Button
+                            IconButton(
+                                onClick = { showTypeBackDialog = true },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.Keyboard, contentDescription = "Type", tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = if (translationResult.isEmpty()) stringResource(R.string.start_signing) else translationResult,
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 32.sp,
+                                lineHeight = 40.sp
+                            ),
+                            color = OnSurface,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Quick Actions Footer
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = null, tint = OnSurfaceVariant.copy(alpha = 0.3f), modifier = Modifier.size(16.dp))
+                        Text(
+                            text = "\"I am looking for the nearest station...\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = OnSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+            
+            // Padding for Bottom Nav
+            Spacer(modifier = Modifier.height(80.dp))
+        }
+
+        // 3. Floating Top Bar (Floating on top of everything)
+        SenseTopBar(
+            onSettingsClick = onNavigateToSettings,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+
+        // 4. Floating Mic Action
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 128.dp, end = 24.dp)
+        ) {
+            FloatingMicButton()
+        }
+
+        // 5. Bottom Navigation Bar
+        SenseBottomNavBar(
+            modifier = Modifier.align(Alignment.BottomCenter),
+            selectedTab = 1,
+            onNavigateToProfile = onNavigateToProfile,
+            onNavigateToTranslator = { /* Already here */ }
+        )
+        
+        // 6. Type Back Dialog
+        if (showTypeBackDialog) {
+            TypeBackDialog(
+                onDismiss = { showTypeBackDialog = false },
+                onSend = { text ->
+                    onTypeBackSend(text)
+                    showTypeBackDialog = false
+                }
+            )
         }
     }
 }
@@ -184,22 +252,24 @@ fun SRTScreen(
 @Composable
 fun TypeBackDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.type_back)) },
         text = {
-            TextField(
+            OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
                 placeholder = { Text(stringResource(R.string.type_something)) },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
             )
         },
         confirmButton = {
-            TextButton(onClick = {
-                onSend(text)
-                onDismiss()
-            }) {
+            Button(
+                onClick = { if (text.isNotBlank()) onSend(text) },
+                enabled = text.isNotBlank()
+            ) {
                 Text(stringResource(R.string.send))
             }
         },
@@ -209,6 +279,80 @@ fun TypeBackDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
             }
         }
     )
+}
+
+@Composable
+fun SenseTopBar(onSettingsClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        color = SurfaceDim.copy(alpha = 0.8f), // Semi-transparent background like HTML
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+                .fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(R.string.app_name).uppercase(),
+                style = MaterialTheme.typography.titleLarge.copy(
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 4.sp,
+                    fontSize = 20.sp
+                ),
+                color = PrimaryColor
+            )
+        }
+    }
+}
+
+@Composable
+fun MetadataBadge(text: String, isGlow: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "badge")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
+    Surface(
+        color = PrimaryColor.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.15f)),
+        modifier = Modifier.alpha(if (isGlow) glowAlpha else 1f)
+    ) {
+        Text(
+            text = text.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            ),
+            color = if (isGlow) OnSurfaceVariant else PrimaryColor,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+fun FloatingMicButton() {
+    Surface(
+        color = PrimaryColor,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .size(56.dp)
+            .clickable { /* Mic logic */ },
+        shadowElevation = 8.dp
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.Mic, contentDescription = stringResource(R.string.voice_mic), tint = OnPrimaryFixed)
+        }
+    }
 }
 
 @Composable
@@ -224,40 +368,36 @@ fun CameraPreview(onStartCamera: (PreviewView) -> Unit) {
     )
 }
 
-
 @Composable
 fun SkeletonOverlay(handLandmarks: HandLandmarkerResult) {
     Canvas(
-        modifier = Modifier
-            .fillMaxSize()
+        modifier = Modifier.fillMaxSize()
     ) {
         val width = size.width
         val height = size.height
 
         handLandmarks.landmarks().forEach { handLandmark ->
-            // Draw connections
+            // Connections
             HandLandmarker.HAND_CONNECTIONS.forEach { connection ->
                 val start = handLandmark[connection.start()]
                 val end = handLandmark[connection.end()]
 
                 drawLine(
-                    color = GlowingBlue,
+                    color = SecondaryColor.copy(alpha = 0.7f),
                     start = Offset(start.x() * width, start.y() * height),
                     end = Offset(end.x() * width, end.y() * height),
-                    strokeWidth = 3.dp.toPx()
+                    strokeWidth = 2.dp.toPx()
                 )
             }
 
-            // Draw joints
+            // Joints with glow
             handLandmark.forEach { landmark ->
                 drawCircle(
-                    color = Color.White,
-                    radius = 4.dp.toPx(),
+                    color = PrimaryColor,
+                    radius = 3.dp.toPx(),
                     center = Offset(landmark.x() * width, landmark.y() * height)
                 )
             }
         }
     }
 }
-
-private val PrimaryBlue = Color(0xFF8AB4F8)

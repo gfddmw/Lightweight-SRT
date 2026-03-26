@@ -21,6 +21,11 @@ class SettingsManager(context: Context) {
         val OUTPUT_LANGUAGE = stringPreferencesKey("output_language")
         val SHOW_SKELETON = booleanPreferencesKey("show_skeleton")
         val CONFIDENCE_THRESHOLD = floatPreferencesKey("confidence_threshold")
+        val AUTO_FOCUS = booleanPreferencesKey("auto_focus")
+        val TEXT_SIZE = stringPreferencesKey("text_size")
+        val DISPLAY_DURATION = stringPreferencesKey("display_duration")
+        val FLASH_ON_TRANSLATION = booleanPreferencesKey("flash_on_translation")
+        val VIBRATION = booleanPreferencesKey("vibration")
     }
 
     val settingsFlow: Flow<UserSettings> = dataStore.data
@@ -32,11 +37,16 @@ class SettingsManager(context: Context) {
             }
         }.map { preferences ->
             UserSettings(
-                appLanguage = preferences[PreferencesKeys.APP_LANGUAGE] ?: "English",
-                signLanguageStandard = preferences[PreferencesKeys.SIGN_LANGUAGE_STANDARD] ?: "ASL (American)",
-                outputLanguage = preferences[PreferencesKeys.OUTPUT_LANGUAGE] ?: "English",
+                appLanguage = preferences[PreferencesKeys.APP_LANGUAGE] ?: "en",
+                signLanguageStandard = preferences[PreferencesKeys.SIGN_LANGUAGE_STANDARD] ?: "ASL",
+                outputLanguage = preferences[PreferencesKeys.OUTPUT_LANGUAGE] ?: "en",
                 showSkeleton = preferences[PreferencesKeys.SHOW_SKELETON] ?: true,
-                confidenceThreshold = preferences[PreferencesKeys.CONFIDENCE_THRESHOLD] ?: 0.5f
+                confidenceThreshold = preferences[PreferencesKeys.CONFIDENCE_THRESHOLD] ?: 0.5f,
+                autoFocus = preferences[PreferencesKeys.AUTO_FOCUS] ?: true,
+                textSize = preferences[PreferencesKeys.TEXT_SIZE] ?: "AA",
+                displayDuration = preferences[PreferencesKeys.DISPLAY_DURATION] ?: "5s",
+                flashOnTranslation = preferences[PreferencesKeys.FLASH_ON_TRANSLATION] ?: false,
+                vibration = preferences[PreferencesKeys.VIBRATION] ?: true
             )
         }
 
@@ -59,6 +69,30 @@ class SettingsManager(context: Context) {
     suspend fun updateConfidenceThreshold(threshold: Float) {
         dataStore.edit { it[PreferencesKeys.CONFIDENCE_THRESHOLD] = threshold }
     }
+
+    suspend fun updateAutoFocus(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.AUTO_FOCUS] = enabled }
+    }
+
+    suspend fun updateTextSize(size: String) {
+        dataStore.edit { it[PreferencesKeys.TEXT_SIZE] = size }
+    }
+
+    suspend fun updateDisplayDuration(duration: String) {
+        dataStore.edit { it[PreferencesKeys.DISPLAY_DURATION] = duration }
+    }
+
+    suspend fun updateFlashOnTranslation(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.FLASH_ON_TRANSLATION] = enabled }
+    }
+
+    suspend fun updateVibration(enabled: Boolean) {
+        dataStore.edit { it[PreferencesKeys.VIBRATION] = enabled }
+    }
+
+    suspend fun resetSettings() {
+        dataStore.edit { it.clear() }
+    }
 }
 
 data class UserSettings(
@@ -66,5 +100,10 @@ data class UserSettings(
     val signLanguageStandard: String,
     val outputLanguage: String,
     val showSkeleton: Boolean,
-    val confidenceThreshold: Float
+    val confidenceThreshold: Float,
+    val autoFocus: Boolean,
+    val textSize: String,
+    val displayDuration: String,
+    val flashOnTranslation: Boolean,
+    val vibration: Boolean
 )
