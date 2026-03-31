@@ -13,10 +13,18 @@ mytools/
 data/
 .idea/
 
-# 忽略 Gradle 缓存
-.gradle/
-
-# 忽略所有的 PyTorch 模型文件
-*.pt
-
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
 local.properties

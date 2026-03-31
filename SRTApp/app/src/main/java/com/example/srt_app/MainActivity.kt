@@ -27,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.compose.runtime.collectAsState
+import androidx.core.os.LocaleListCompat
 import com.example.srt_app.camera.SignFrameAnalyzer
 import com.example.srt_app.ml.HandLandmarkerHelper
 import com.example.srt_app.ml.LightweightTranslator
@@ -55,7 +56,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private lateinit var settingsManager: SettingsManager
     private var handLandmarkerHelper: HandLandmarkerHelper? = null
     private var tts: TextToSpeech? = null
-    
+
     private var imageCapture: ImageCapture? = null
     private var lastPreviewView: PreviewView? = null
 
@@ -72,7 +73,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private var currentScreen by mutableStateOf("home")
 
     // --- Preprocessing Constants & Buffers ---
-    private val windowSize = 30 
+    private val windowSize = 30
     private val featureDimension = 21 * 3 * 2 // 21 landmarks * 3 (xyz) * 2 hands
     private val frameBuffer = java.util.Collections.synchronizedList(mutableListOf<FloatArray>())
     private var lastRawLandmarks: FloatArray? = null
@@ -92,12 +93,12 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         settingsManager = SettingsManager(this)
         initTTS()
         try {
             handLandmarkerHelper = HandLandmarkerHelper(
-                context = this, 
+                context = this,
                 handLandmarkerHelperListener = this,
                 currentDelegate = HandLandmarkerHelper.DELEGATE_CPU // 强制使用 CPU
             )
@@ -108,14 +109,15 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
         initDependencies()
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
             != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
 
         setContent {
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
             val settings = settingsManager.settingsFlow.collectAsState(initial = null).value
-            
+
             // 优化：添加防抖处理，只有当用户停止滑动 500ms 后才真正重新初始化识别器
             LaunchedEffect(settings?.confidenceThreshold) {
                 settings?.confidenceThreshold?.let { threshold ->
@@ -132,67 +134,81 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                 }
             }
 
+            // Apply App Language
+            LaunchedEffect(settings?.appLanguage) {
+                settings?.appLanguage?.let { lang ->
+                    val appLocales = LocaleListCompat.forLanguageTags(lang)
+                    AppCompatDelegate.setApplicationLocales(appLocales)
+                }
+            }
+
             SRTAppTheme {
                 if (settings != null) {
-                    if (currentScreen == "home") {
-                        SRTScreen(
-                            translationResult = translationResult,
-                            onStartCamera = { previewView ->
-                                lastPreviewView = previewView
-                                startCamera(previewView)
-                            },
-                            onNavigateToSettings = {
-                                currentScreen = "settings"
-                            },
-                            onCapture = {
-                                takePhoto()
-                            },
-                            onFlipCamera = {
-                                toggleCamera()
-                            },
-                            onTypeBackSend = { text ->
-                                translationResult = text
-                                speak(text)
-                            },
-                            showSkeleton = settings.showSkeleton,
-                            handLandmarks = handLandmarks,
-                            signLanguage = settings.signLanguageStandard,
-                            outputLanguage = settings.outputLanguage
-                        )
-                    } else {
-                        com.example.srt_app.ui.SettingsScreen(
-                            onBack = { currentScreen = "home" },
-                            currentSignLanguage = settings.signLanguageStandard,
-                            onSignLanguageChange = { 
-                                CoroutineScope(Dispatchers.IO).launch { settingsManager.updateSignLanguageStandard(it) }
-                            },
-                            currentOutputLanguage = settings.outputLanguage,
-                            onOutputLanguageChange = {
-                                CoroutineScope(Dispatchers.IO).launch { settingsManager.updateOutputLanguage(it) }
-                            },
-                            showSkeleton = settings.showSkeleton,
-                            onShowSkeletonChange = {
-                                CoroutineScope(Dispatchers.IO).launch { settingsManager.updateShowSkeleton(it) }
-                            },
-                            confidenceThreshold = settings.confidenceThreshold,
-                            onConfidenceThresholdChange = {
-                                CoroutineScope(Dispatchers.IO).launch { settingsManager.updateConfidenceThreshold(it) }
-                            },
-                            currentAppLanguage = settings.appLanguage,
-                            onAppLanguageChange = { language ->
-                                CoroutineScope(Dispatchers.IO).launch { 
-                                    settingsManager.updateAppLanguage(language)
-                                    val appLocale = if (language == "简体中文") {
-                                        androidx.core.os.LocaleListCompat.forLanguageTags("zh")
-                                    } else {
-                                        androidx.core.os.LocaleListCompat.forLanguageTags("en")
+                    when (currentScreen) {
+                        "home" -> {
+                            SRTScreen(
+                                translationResult = translationResult,
+                                onStartCamera = { previewView ->
+                                    lastPreviewView = previewView
+                                    startCamera(previewView)
+                                },
+                                onNavigateToSettings = { currentScreen = "settings" },
+                                onNavigateToProfile = { currentScreen = "profile" },
+                                onNavigateToHistory = { currentScreen = "history" },
+                                onCapture = { takePhoto() },
+                                onFlipCamera = { toggleCamera() },
+                                onTypeBackSend = { text ->
+                                    translationResult = text
+                                    speak(text)
+                                },
+                                showSkeleton = settings.showSkeleton,
+                                handLandmarks = handLandmarks,
+                                signLanguage = settings.signLanguageStandard,
+                                outputLanguage = settings.outputLanguage
+                            )
+                        }
+                        "settings" -> {
+                            com.example.srt_app.ui.SettingsScreen(
+                                onBack = { currentScreen = "home" },
+                                onNavigateToProfile = { currentScreen = "profile" },
+                                onNavigateToHistory = { currentScreen = "history" },
+                                onSave = { newSettings ->
+                                    scope.launch {
+                                        settingsManager.updateAppLanguage(newSettings.appLanguage)
+                                        settingsManager.updateSignLanguageStandard(newSettings.signLanguageStandard)
+                                        settingsManager.updateOutputLanguage(newSettings.outputLanguage)
+                                        settingsManager.updateShowSkeleton(newSettings.showSkeleton)
+                                        settingsManager.updateConfidenceThreshold(newSettings.confidenceThreshold)
+                                        settingsManager.updateAutoFocus(newSettings.autoFocus)
+                                        settingsManager.updateTextSize(newSettings.textSize)
+                                        settingsManager.updateDisplayDuration(newSettings.displayDuration)
+                                        settingsManager.updateFlashOnTranslation(newSettings.flashOnTranslation)
+                                        settingsManager.updateVibration(newSettings.vibration)
+                                        currentScreen = "home"
                                     }
-                                    runOnUiThread {
-                                        AppCompatDelegate.setApplicationLocales(appLocale)
+                                },
+                                onReset = {
+                                    scope.launch {
+                                        settingsManager.resetSettings()
                                     }
-                                }
-                            }
-                        )
+                                },
+                                initialSettings = settings
+                            )
+                        }
+                        "profile" -> {
+                            com.example.srt_app.ui.ProfileScreen(
+                                onNavigateToTranslator = { currentScreen = "home" },
+                                onNavigateToSettings = { currentScreen = "settings" },
+                                onNavigateToHistory = { currentScreen = "history" },
+                                onLogout = { /* Logout logic */ }
+                            )
+                        }
+                        "history" -> {
+                            com.example.srt_app.ui.HistoryScreen(
+                                onNavigateToTranslator = { currentScreen = "home" },
+                                onNavigateToProfile = { currentScreen = "profile" }
+                            )
+                        }
                     }
                 }
             }
@@ -202,7 +218,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private fun initDependencies() {
         translator = LightweightTranslator(this)
         translator.initialize()
-        
+
         frameAnalyzer = SignFrameAnalyzer(
             handLandmarkerHelper = handLandmarkerHelper,
             isFrontCamera = { lensFacing == CameraSelector.LENS_FACING_FRONT },
@@ -213,7 +229,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     override fun onResults(resultBundle: HandLandmarkerHelper.ResultBundle) {
         runOnUiThread {
             handLandmarks = resultBundle.results.firstOrNull()
-            
+
             // 触发翻译逻辑（这里可以加入滑动窗口逻辑）
             if (handLandmarks != null && !isProcessing) {
                 processLandmarks(handLandmarks!!)
@@ -230,10 +246,10 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private fun processLandmarks(result: HandLandmarkerResult) {
         // 1. 特征提取 (Normalization & Flattening)
         val currentFrameFeatures = extractFeatures(result)
-        
+
         // 2. 坐标平滑处理 (Exponential Smoothing)
         val smoothedFeatures = smoothFeatures(currentFrameFeatures)
-        
+
         // 3. 滑动窗口管理
         synchronized(frameBuffer) {
             frameBuffer.add(smoothedFeatures)
@@ -253,7 +269,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                 }
                 flattened
             }
-            
+
             runTranslation(inputToModel)
         }
     }
@@ -263,7 +279,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
      */
     private fun extractFeatures(result: HandLandmarkerResult): FloatArray {
         val features = FloatArray(featureDimension) // 默认全 0
-        
+
         val landmarks = result.landmarks()
         // 遍历检测到的手（最多2只）
         for (handIndex in 0 until landmarks.size.coerceAtMost(2)) {
@@ -286,11 +302,11 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private fun smoothFeatures(current: FloatArray): FloatArray {
         val previous = lastRawLandmarks ?: return current.also { lastRawLandmarks = it }
         val smoothed = FloatArray(featureDimension)
-        
+
         for (i in 0 until featureDimension) {
             smoothed[i] = current[i] * smoothingFactor + previous[i] * (1f - smoothingFactor)
         }
-        
+
         lastRawLandmarks = smoothed
         return smoothed
     }
