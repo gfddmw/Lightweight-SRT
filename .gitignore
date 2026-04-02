@@ -2,6 +2,7 @@
 *.pth
 *.ckpt
 *.pptx
+*.npy
 
 # 忽略存文件夹
 mytools/
@@ -9,9 +10,14 @@ mytools/
 **/checkpoints/
 **/mytools/
 
+
 # 忽略数据文件夹 (如果之前没加)
-data/
+data/WLASL2000/*.mp4
 .idea/
+
+# 忽略生成的中间特征（体积大，可再生）
+processed/
+work_dir/
 
 *.iml
 .gradle

@@ -1,0 +1,34 @@
+work_dir: ./work_dir/recognition/wlasl2000/ST_GCN
+
+# feeder
+feeder: feeder.feeder.Feeder
+train_feeder_args:
+  data_path: ./data/WLASL/wlasl2000/train_data.npy
+  label_path: ./data/WLASL/wlasl2000/train_label.pkl
+test_feeder_args:
+  data_path: ./data/WLASL/wlasl2000/val_data.npy
+  label_path: ./data/WLASL/wlasl2000/val_label.pkl
+
+# model
+model: src.student_model.architecture.st_gcn.Model
+model_args:
+  in_channels: 3
+  num_class: 2000
+  dropout: 0.5
+  edge_importance_weighting: True
+  graph_args:
+    layout: 'openpose'
+    strategy: 'spatial'
+
+# optim
+weight_decay: 0.0001
+base_lr: 0.1
+step: [20, 40, 60]
+
+# training
+# Use CPU by setting use_gpu: False and device: 0 in command line.
+device: [0]
+batch_size: 32
+test_batch_size: 32
+num_epoch: 80
+num_worker: 4
