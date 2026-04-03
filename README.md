@@ -110,4 +110,6 @@ jupyter notebook demo/demo_pipeline.ipynb
 ## 核心资产说明
 - **数据集**: 使用 WLASL2000 (Word-Level American Sign Language)。
 - **特征数据**: 存放于 `processed/`，包含 21 个手部关键点序列和 I3D 提取的 2000 维 Logits。
+通过网盘分享的文件：数据集
+  链接: https://pan.baidu.com/s/1C0Y-Zry6FIuBv30o6ESLJA?pwd=gp6i 提取码: gp6i
 - **移动端**: 位于 `android/`，是基于 Kotlin 开发的实时识别 App。
