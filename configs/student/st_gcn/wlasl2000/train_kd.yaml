@@ -37,7 +37,7 @@ step: [20, 40, 60]
 
 # training
 device: [0]
-batch_size: 32
-test_batch_size: 32
+batch_size: 64
+test_batch_size: 64
 num_epoch: 80
 num_worker: 4

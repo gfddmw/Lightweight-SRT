@@ -107,23 +107,23 @@ def process_single_video(task):
                 return video_id, "EMPTY", 0, 0
 
             # 数据处理
-            missing_ratio = missing_count / total_frames
-            is_bad = missing_ratio > 0.5
-            
+            # 移除针对 bad_sample 的剔除逻辑，保留所有视频的数据
             data_array = np.array(all_frames_data, dtype=np.float32)
             
             # 清空原始列表释放内存
             del all_frames_data 
             gc.collect()
 
-            if not is_bad and missing_count > 0:
+            # 只要有数据就尝试进行插值处理
+            if missing_count > 0 and missing_count < total_frames:
                 data_array = linear_interpolation(data_array)
             
             # 保存
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             np.save(output_path, data_array)
             
-            status = "OK" if not is_bad else "BAD_QUALITY"
+            # 状态统一标记为 OK，除非完全没有帧
+            status = "OK"
             return video_id, status, total_frames, missing_count
 
     except Exception as e:
