@@ -31,38 +31,42 @@ TEACHER_WEIGHTS = teach_weights_path
 SAVE_DIR = os.path.abspath(os.path.join(current_dir, '../../processed/logits'))
 
 
-def run_extraction():
+import argparse
+
+def run_extraction(subset='train', batch_size=1, device_name='cuda'):
     # 1. 准备保存目录
     if not os.path.exists(SAVE_DIR):
         os.makedirs(SAVE_DIR)
         print(f"创建目录: {SAVE_DIR}")
 
     # 2. 设置设备
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"运行设备: {device}")
+    device = torch.device(device_name if torch.cuda.is_available() else "cpu")
+    print(f"运行设备: {device} | 提取子集: {subset}")
 
     # 3. 加载数据集
-    # 注意：必须用 'train' set，因为我们要蒸馏训练集
     test_transforms = transforms.Compose([videotransforms.CenterCrop(224)])
-    dataset = Dataset(JSON_FILE, 'train', DATA_ROOT, 'rgb', test_transforms)
+    dataset = Dataset(JSON_FILE, subset, DATA_ROOT, 'rgb', test_transforms)
 
     # Batch_size 设为 1 是最稳妥的，防止视频长短不一导致 Padding 误差
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
     print(f"共需提取 {len(dataset)} 个视频特征...")
 
     # 4. 加载教师模型
     i3d = InceptionI3d(2000, in_channels=3)
     # 处理 DataParallel 留下的 'module.' 前缀
-    state_dict = torch.load(TEACHER_WEIGHTS, map_location=device)
-    if 'module.' in list(state_dict.keys())[0]:
-        from collections import OrderedDict
-        new_state_dict = OrderedDict()
-        for k, v in state_dict.items():
-            new_state_dict[k.replace('module.', '')] = v
-        state_dict = new_state_dict
-
-    i3d.load_state_dict(state_dict)
+    if os.path.exists(TEACHER_WEIGHTS):
+        state_dict = torch.load(TEACHER_WEIGHTS, map_location=device)
+        if 'module.' in list(state_dict.keys())[0]:
+            from collections import OrderedDict
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                new_state_dict[k.replace('module.', '')] = v
+            state_dict = new_state_dict
+        i3d.load_state_dict(state_dict)
+    else:
+        print(f"警告: 未找到权重文件 {TEACHER_WEIGHTS}，将使用随机初始化进行调试。")
+    
     i3d.to(device)
     i3d.eval()  # 开启评估模式 (关闭 Dropout/BN 更新)
 
@@ -70,9 +74,7 @@ def run_extraction():
     with torch.no_grad():
         for i, data in enumerate(dataloader):
             # 获取数据
-            # 通常是 inputs, labels, video_id, ...
             inputs, labels, video_id = data
-
             inputs = inputs.to(device)  # inputs shape: (1, 3, T, 224, 224)
 
             # --- 模型推理 ---
@@ -83,19 +85,23 @@ def run_extraction():
             video_logits = torch.mean(per_frame_logits, dim=2)
 
             # --- 保存 ---
-            # 这里的 video_id 是个 tuple ('05723',)，取第0个元素
             vid_str = video_id[0]
             save_path = os.path.join(SAVE_DIR, f"{vid_str}.npy")
 
             # 转为 numpy 并保存
-            # .cpu() 移回内存, .numpy() 转数组
             np.save(save_path, video_logits.cpu().numpy().flatten())
 
             if i % 100 == 0:
                 print(f"进度: {i}/{len(dataset)} - 已保存 {vid_str}.npy")
 
-    print("所有教师特征提取完毕！")
+    print(f"子集 {subset} 教师特征提取完毕！")
 
 
 if __name__ == '__main__':
-    run_extraction()
+    parser = argparse.ArgumentParser(description='Extract teacher logits for distillation')
+    parser.add_argument('--subset', type=str, default='train', choices=['train', 'test', 'val'], help='Dataset subset to extract')
+    parser.add_argument('--batch_size', type=int, default=1, help='Batch size (default: 1)')
+    parser.add_argument('--device', type=str, default='cuda', help='Device to use (cuda/cpu)')
+    args = parser.parse_args()
+
+    run_extraction(subset=args.subset, batch_size=args.batch_size, device_name=args.device)

@@ -74,8 +74,8 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private var currentScreen by mutableStateOf("home")
 
     // --- Preprocessing Constants & Buffers ---
-    private val windowSize = 30
-    private val featureDimension = 21 * 3 * 2 // 21 landmarks * 3 (xyz) * 2 hands
+    private val windowSize = 64
+    private val featureDimension = 21 * 3 // 21 landmarks * 3 (xyz)
     private val frameBuffer = java.util.Collections.synchronizedList(mutableListOf<FloatArray>())
     private var lastRawLandmarks: FloatArray? = null
     private val smoothingFactor = 0.3f // Exponential smoothing factor
@@ -398,13 +398,21 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
         // 4. 当缓冲区满时，触发异步翻译逻辑
         if (frameBuffer.size == windowSize && !isProcessing) {
             val inputToModel = synchronized(frameBuffer) {
-                // 将 List<FloatArray> 展平为模型需要的连续 FloatArray
-                val totalSize = windowSize * featureDimension
-                val flattened = FloatArray(totalSize)
-                for (i in 0 until windowSize) {
-                    System.arraycopy(frameBuffer[i], 0, flattened, i * featureDimension, featureDimension)
+                // 重新组织数据以匹配 ST-GCN 的输入形状: (N=1, C=3, T=64, V=21, M=1)
+                // 顺序: 先所有 X (T*V个), 再所有 Y (T*V个), 最后所有 Z (T*V个)
+                val totalSize = 3 * windowSize * 21
+                val reshaped = FloatArray(totalSize)
+                
+                for (c in 0 until 3) {
+                    for (t in 0 until windowSize) {
+                        for (v in 0 until 21) {
+                            val srcIdx = v * 3 + c
+                            val dstIdx = c * (windowSize * 21) + t * 21 + v
+                            reshaped[dstIdx] = frameBuffer[t][srcIdx]
+                        }
+                    }
                 }
-                flattened
+                reshaped
             }
 
             runTranslation(inputToModel)
@@ -412,19 +420,17 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     }
 
     /**
-     * 将 MediaPipe 的结果转换为归一化的 FloatArray (126 维: 21点 * 3轴 * 2只手)
+     * 将 MediaPipe 的结果转换为归一化的 FloatArray (63 维: 21点 * 3轴)
      */
     private fun extractFeatures(result: HandLandmarkerResult): FloatArray {
-        val features = FloatArray(featureDimension) // 默认全 0
+        val features = FloatArray(featureDimension) // 默认全 0 (63维)
 
         val landmarks = result.landmarks()
-        // 遍历检测到的手（最多2只）
-        for (handIndex in 0 until landmarks.size.coerceAtMost(2)) {
-            val handLandmarks = landmarks[handIndex]
+        if (landmarks.isNotEmpty()) {
+            val firstHand = landmarks[0]
             for (i in 0 until 21) {
-                val landmark = handLandmarks[i]
-                val offset = (handIndex * 21 * 3) + (i * 3)
-                // 存储归一化坐标 (MediaPipe 默认输出 0.0-1.0)
+                val landmark = firstHand[i]
+                val offset = i * 3
                 features[offset] = landmark.x()
                 features[offset + 1] = landmark.y()
                 features[offset + 2] = landmark.z()
