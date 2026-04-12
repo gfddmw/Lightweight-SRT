@@ -1,0 +1,46 @@
+work_dir: ./work_dir/recognition/wlasl2000/ST_GCN_KD_Fast
+
+# feeder (team StudentDataset)
+feeder: src.student_model.feeder.student_dataset.StudentDataset
+train_feeder_args:
+  split_json: ./data/WLASL2000/preprocess/nslt_2000.json
+  skeleton_dir: ./processed/skeletons
+  logits_dir: ./processed/logits
+  subset: train
+  seq_len: 64
+test_feeder_args:
+  split_json: ./data/WLASL2000/preprocess/nslt_2000.json
+  skeleton_dir: ./processed/skeletons
+  logits_dir: ./processed/logits
+  subset: test
+  seq_len: 64
+
+# model
+model: src.student_model.architecture.st_gcn.Model
+model_args:
+  in_channels: 3
+  num_class: 2000
+  dropout: 0.5
+  edge_importance_weighting: True
+  graph_args:
+    layout: 'openpose'
+    strategy: 'spatial'
+
+# kd
+kd_alpha: 0.7
+kd_temperature: 4.0
+
+# optim
+weight_decay: 0.0001
+base_lr: 0.2
+step: [40, 70, 100]
+
+# training
+device: [0]
+batch_size: 128
+test_batch_size: 128
+num_epoch: 120
+num_worker: 8
+eval_interval: 10
+log_interval: 100
+save_interval: 10

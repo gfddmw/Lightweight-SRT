@@ -171,10 +171,12 @@ class st_gcn(nn.Module):
         )
 
         if not residual:
-            self.residual = lambda x: 0
+            class Zero(nn.Module):
+                def forward(self, x): return 0
+            self.residual = Zero()
 
         elif (in_channels == out_channels) and (stride == 1):
-            self.residual = lambda x: x
+            self.residual = nn.Identity()
 
         else:
             self.residual = nn.Sequential(
