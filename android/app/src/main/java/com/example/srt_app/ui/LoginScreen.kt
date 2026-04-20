@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.srt_app.data.AppDatabase
 import com.example.srt_app.data.UserRepository
+import com.example.srt_app.utils.TokenManager
 import com.example.srt_app.ui.viewmodel.AuthState
 import com.example.srt_app.ui.viewmodel.AuthViewModel
 import com.example.srt_app.ui.viewmodel.AuthViewModelFactory
@@ -36,13 +37,11 @@ enum class LoginMode {
 
 @Composable
 fun LoginScreen(
+    repository: UserRepository,
     onLoginSuccess: (String, String, String, String, String) -> Unit,
     onNavigateToRegister: () -> Unit
 ) {
     val context = LocalContext.current
-    val database = AppDatabase.getDatabase(context)
-    val settingsManager = remember { com.example.srt_app.utils.SettingsManager(context) }
-    val repository = remember { UserRepository(context, database.userDao(), settingsManager) }
     val factory = remember { AuthViewModelFactory(repository) }
     val viewModel: AuthViewModel = viewModel(factory = factory)
 

@@ -128,4 +128,9 @@
     <string name="start_journey">开启您的翻译之旅</string>
     <string name="username">用户名</string>
     <string name="already_have_account">已有账号？</string>
+    <string name="bio">个人简介</string>
+    <string name="save_changes">保存更改</string>
+    <string name="profile_updated">资料已更新！</string>
+    <string name="profile_updated_avatar">资料与头像已更新！</string>
+    <string name="upload_failed">上传失败: %s</string>
 </resources>

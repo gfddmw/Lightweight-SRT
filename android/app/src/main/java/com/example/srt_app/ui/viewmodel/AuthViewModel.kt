@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.srt_app.data.User
 import com.example.srt_app.data.UserRepository
+import com.example.srt_app.data.AuthData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -18,8 +19,8 @@ class AuthViewModel(private val repository: UserRepository) : ViewModel() {
             _authState.value = AuthState.Loading
             val trimmedEmail = email.trim()
             val result = repository.login(trimmedEmail, password)
-            result.onSuccess { authResult ->
-                _authState.value = AuthState.Success(authResult.user, authResult.accessToken, authResult.refreshToken)
+            result.onSuccess { authData: AuthData ->
+                _authState.value = AuthState.Success(authData.user, authData.accessToken, authData.refreshToken)
             }.onFailure { error ->
                 _authState.value = AuthState.Error(error.message ?: "Login failed")
             }
@@ -44,8 +45,8 @@ class AuthViewModel(private val repository: UserRepository) : ViewModel() {
             _authState.value = AuthState.Loading
             val trimmedEmail = email.trim()
             val result = repository.loginWithCode(trimmedEmail, code, token)
-            result.onSuccess { authResult ->
-                _authState.value = AuthState.Success(authResult.user, authResult.accessToken, authResult.refreshToken)
+            result.onSuccess { authData: AuthData ->
+                _authState.value = AuthState.Success(authData.user, authData.accessToken, authData.refreshToken)
             }.onFailure { error ->
                 _authState.value = AuthState.Error(error.message ?: "Login failed")
             }
@@ -58,8 +59,8 @@ class AuthViewModel(private val repository: UserRepository) : ViewModel() {
             val trimmedEmail = email.trim()
             val user = User(username = username, email = trimmedEmail, password = password)
             val result = repository.register(user, verificationCode, verificationToken)
-            result.onSuccess { authResult ->
-                _authState.value = AuthState.Success(authResult.user, authResult.accessToken, authResult.refreshToken)
+            result.onSuccess { authData: AuthData ->
+                _authState.value = AuthState.Success(authData.user, authData.accessToken, authData.refreshToken)
             }.onFailure { error ->
                 _authState.value = AuthState.Error(error.message ?: "Registration failed")
             }

@@ -71,6 +71,9 @@ dependencies {
     // DataStore
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Security
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // MediaPipe
     implementation("com.google.mediapipe:tasks-vision:0.10.14")
 
@@ -86,6 +89,13 @@ dependencies {
     // Networking & JSON
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // PyTorch
+    implementation("org.pytorch:pytorch_android_lite:1.13.1")
+    implementation("org.pytorch:pytorch_android_torchvision_lite:1.13.1")
+
+    // Aliyun OSS
+    implementation("com.aliyun.dpa:oss-android-sdk:2.9.19")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

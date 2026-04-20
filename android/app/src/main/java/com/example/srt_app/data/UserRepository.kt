@@ -2,102 +2,58 @@ package com.example.srt_app.data
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
-import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.UUID
-
-import java.util.concurrent.TimeUnit
+import com.example.srt_app.utils.TokenManager
+import com.example.srt_app.utils.SettingsManager
+import com.example.srt_app.utils.AliCloudClient
+import com.google.gson.annotations.SerializedName
 
 class UserRepository(
     private val context: Context, 
     private val userDao: UserDao,
-    private val settingsManager: com.example.srt_app.utils.SettingsManager
+    private val settingsManager: SettingsManager,
+    private val tokenManager: TokenManager
 ) {
-    private val envId = "srt-app-3gw2nml5a0b41a6f"
-    private val baseUrl = "https://$envId.api.tcloudbasegateway.com/auth/v1"
+    private val aliClient = AliCloudClient()
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .addInterceptor { chain ->
-            val original = chain.request()
-            val requestBuilder = original.newBuilder()
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
+    private val _userProfile = MutableStateFlow<UserProfile>(UserProfile())
+    val userProfile: StateFlow<UserProfile> = _userProfile.asStateFlow()
 
-            // 从 SettingsManager 中尝试同步读取 Token (由于 DataStore 是异步的，这里使用 runBlocking 获取)
-            // 提示：拦截器运行在 OkHttp 的子线程中，runBlocking 在这里是安全的
-            val token = kotlinx.coroutines.runBlocking {
-                settingsManager.getAccessTokenSync()
-            }
-
-            if (token.isNotEmpty()) {
-                requestBuilder.header("Authorization", "Bearer $token")
-                Log.d("UserRepository", "Interceptor: Adding Authorization header")
-            }
-
-            chain.proceed(requestBuilder.build())
-        }
-        .build()
-    
-    private val gson = Gson()
-    
-    private val deviceId: String by lazy {
-        val prefs = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
-        var id = prefs.getString("device_id", null)
-        if (id == null) {
-            id = "android_device_${UUID.randomUUID().toString().take(8)}"
-            prefs.edit().putString("device_id", id).apply()
-        }
-        id
+    init {
+        Log.i("SRT_DEBUG", "UserRepository: Switching to AliCloud Backend.")
     }
 
-    data class AuthResult(
-        val user: User,
-        val accessToken: String,
-        val refreshToken: String
-    )
-
     /**
-     * 1. 内部辅助方法：验证验证码并获取 verification_token
+     * 实现阿里云登录逻辑
      */
-    private suspend fun verifyCode(verificationId: String, verificationCode: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun login(email: String, password: String): Result<AuthData> = withContext(Dispatchers.IO) {
         try {
-            Log.d("UserRepository", "Verifying code: $verificationCode for id: $verificationId")
-            val json = JsonObject().apply {
-                addProperty("verification_id", verificationId)
-                addProperty("verification_code", verificationCode)
-            }
-            
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/verification/verify")
-                .post(requestBody)
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
+            val loginData = mapOf("username" to email, "password" to password)
+            val response = aliClient.request(
+                method = "POST",
+                path = "/login",
+                body = loginData,
+                responseType = AuthData::class.java
+            )
 
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "Verify Response (${response.code}): $responseBody")
-
-            if (response.isSuccessful) {
-                val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
-                val token = jsonResponse.get("verification_token")?.asString ?: ""
-                if (token.isNotEmpty()) Result.success(token) else Result.failure(Exception("No verification_token in response"))
+            if (response != null) {
+                tokenManager.saveTokens(response.accessToken, response.refreshToken)
+                aliClient.updateToken(response.accessToken)
+                
+                // 保存登录状态及用户名，以便下次同步
+                settingsManager.setLoggedIn(true, response.user.username)
+                
+                // 立即去云端拉取最完整的 Profile (包含头像)
+                fetchUserProfile(response.user.username)
+                
+                Result.success(response)
             } else {
-                val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-                val message = jsonResponse?.get("error_description")?.asString 
-                           ?: jsonResponse?.get("message")?.asString 
-                           ?: "Verification failed (${response.code})"
-                Result.failure(Exception(message))
+                Result.failure(Exception("Login failed on AliCloud"))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -105,279 +61,203 @@ class UserRepository(
     }
 
     /**
-     * 2. 注册 (逻辑：先 verify 获取 token，再 signup)
+     * 从云端拉取最新的用户信息
      */
-    suspend fun register(user: User, verificationCode: String, verificationId: String): Result<AuthResult> = withContext(Dispatchers.IO) {
+    suspend fun fetchUserProfile(username: String = ""): Result<UserProfile> = withContext(Dispatchers.IO) {
         try {
-            // 第一步：验证验证码
-            val verifyResult = verifyCode(verificationId, verificationCode)
-            if (verifyResult.isFailure) return@withContext Result.failure(verifyResult.exceptionOrNull()!!)
-            
-            val verificationToken = verifyResult.getOrThrow()
-
-            // 第二步：正式注册
-            Log.d("UserRepository", "Finalizing signup for: ${user.email} with token: $verificationToken")
-            val json = JsonObject().apply {
-                addProperty("username", user.username) 
-                addProperty("email", user.email)
-                addProperty("password", user.password)
-                addProperty("verification_token", verificationToken)
+            // 确定目标用户名
+            var targetUsername = username
+            if (targetUsername.isEmpty()) {
+                // 如果参数为空，先尝试从 DataStore 读取已保存的用户名
+                val prefs = settingsManager.settingsFlow.first()
+                targetUsername = prefs.savedUsername
             }
             
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/signup")
-                .post(requestBody)
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
+            if (targetUsername.isEmpty() || targetUsername == "Guest") {
+                return@withContext Result.failure(Exception("No user logged in"))
+            }
 
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "Signup Response (${response.code}): $responseBody")
-            
-            val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-            val data = if (jsonResponse?.has("data") == true) {
-                val dataElement = jsonResponse.get("data")
-                if (dataElement.isJsonObject) dataElement.asJsonObject else null
-            } else jsonResponse
+            Log.d("SRT_DEBUG", ">>> Fetching Profile for: $targetUsername")
 
-            if (response.isSuccessful && data != null && (data.has("uid") || data.has("access_token"))) {
-                val accessToken = data.get("access_token")?.asString ?: ""
-                val refreshToken = data.get("refresh_token")?.asString ?: ""
-                Result.success(AuthResult(user, accessToken, refreshToken))
+            val response = aliClient.request(
+                method = "GET",
+                path = "/get_profile?username=$targetUsername",
+                responseType = Map::class.java
+            )
+
+            if (response != null && (response["status"] == "success" || response["statusCode"] == 200.0)) {
+                // 处理复杂的 Map 类型转换
+                val profileMap = response["profile"] as? Map<*, *>
+                val newProfile = UserProfile(
+                    nickname = profileMap?.get("nickname") as? String ?: targetUsername,
+                    description = profileMap?.get("description") as? String ?: "Offline User",
+                    avatarUrl = profileMap?.get("avatarUrl") as? String ?: ""
+                )
+                
+                Log.i("SRT_DEBUG", ">>> PROFILE FETCHED: Nickname=${newProfile.nickname}, Avatar=${newProfile.avatarUrl}")
+                
+                _userProfile.value = newProfile
+                Result.success(newProfile)
             } else {
-                val message = jsonResponse?.get("message")?.asString ?: "Registration failed (${response.code})"
-                Result.failure(Exception(message))
+                Result.failure(Exception("Profile not found on cloud"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "Register Error", e)
+            Log.e("SRT_DEBUG", ">>> Fetch Profile Error: ${e.message}")
             Result.failure(e)
         }
     }
 
-    /**
-     * 3. 用户名密码登录
-     */
-    suspend fun login(email: String, password: String): Result<AuthResult> = withContext(Dispatchers.IO) {
-        try {
-            Log.d("UserRepository", "Logging in: $email")
-            val json = JsonObject().apply {
-                addProperty("username", email)
-                addProperty("password", password)
-            }
-            
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/signin")
-                .post(requestBody)
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "Login Response (${response.code}): $responseBody")
-            val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-            val data = if (jsonResponse?.has("data") == true) {
-                val dataElement = jsonResponse.get("data")
-                if (dataElement.isJsonObject) dataElement.asJsonObject else null
-            } else jsonResponse
-
-            if (response.isSuccessful && data?.has("access_token") == true) {
-                val accessToken = data.get("access_token").asString
-                val refreshToken = data.get("refresh_token").asString
-                // 不再硬编码 "User"，使用邮箱名作为临时展示名
-                val tempName = email.substringBefore("@")
-                val user = User(id = 0, username = tempName, email = email, password = "")
-                Result.success(AuthResult(user, accessToken, refreshToken))
-            } else {
-                val message = jsonResponse?.get("message")?.asString ?: "Login failed (${response.code})"
-                Result.failure(Exception(message))
-            }
-        } catch (e: Exception) {
-            Log.e("UserRepository", "Login Error", e)
-            Result.failure(e)
+    suspend fun performStartupSync() {
+        val token = tokenManager.getAccessToken()
+        if (token.isNotEmpty()) {
+            aliClient.updateToken(token)
+            // 冷启动时同步一次云端资料
+            fetchUserProfile()
         }
     }
 
     /**
-     * 4. 发送邮箱验证码 (返回 verification_id)
+     * 发送验证码 (阿里云适配)
      */
     suspend fun sendVerificationCode(email: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            Log.d("UserRepository", "Sending verification code to: $email")
-            val json = JsonObject().apply {
-                addProperty("email", email)
-                addProperty("target", "ANY") // 'ANY' matches most use cases (login or registration)
-            }
-            
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/verification") 
-                .post(requestBody)
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "SendCode Response (${response.code}): $responseBody")
-
-            if (response.isSuccessful) {
-                val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
-                val dataElement = if (jsonResponse.has("data")) jsonResponse.get("data") else jsonResponse
-                
-                val id = when {
-                    dataElement.isJsonObject -> {
-                        val dataObj = dataElement.asJsonObject
-                        dataObj.get("verification_id")?.asString 
-                            ?: dataObj.get("verificationId")?.asString
-                            ?: ""
-                    }
-                    else -> ""
-                }
-                
-                if (id.isNotEmpty()) Result.success(id) else Result.failure(Exception("No verification_id in response"))
-            } else {
-                val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-                val message = jsonResponse?.get("message")?.asString ?: "Failed to send code (${response.code})"
-                Result.failure(Exception(message))
-            }
-        } catch (e: Exception) {
-            Log.e("UserRepository", "SendCode Error", e)
-            Result.failure(e)
-        }
+            val response = aliClient.request(
+                method = "POST",
+                path = "/send_code",
+                body = mapOf("email" to email),
+                responseType = Map::class.java
+            )
+            val id = response?.get("verification_id") as? String ?: ""
+            if (id.isNotEmpty()) Result.success(id) else Result.failure(Exception("Send failed"))
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     /**
-     * 5. 邮箱验证码登录 (逻辑：先 verify 再 signin)
+     * 验证码登录 (阿里云适配)
      */
-    suspend fun loginWithCode(email: String, code: String, verificationId: String): Result<AuthResult> = withContext(Dispatchers.IO) {
+    suspend fun loginWithCode(email: String, code: String, id: String): Result<AuthData> = withContext(Dispatchers.IO) {
         try {
-            // 第一步：验证验证码
-            val verifyResult = verifyCode(verificationId, code)
-            if (verifyResult.isFailure) return@withContext Result.failure(verifyResult.exceptionOrNull()!!)
-            
-            val verificationToken = verifyResult.getOrThrow()
-
-            // 第二步：使用 token 登录
-            Log.d("UserRepository", "Finalizing signin-with-code with token: $verificationToken")
-            val json = JsonObject().apply {
-                addProperty("email", email)
-                addProperty("verification_token", verificationToken)
-            }
-            
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/signin") // 通常也是 signin 接口
-                .post(requestBody)
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "SigninWithToken Response (${response.code}): $responseBody")
-            val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-            val data = if (jsonResponse?.has("data") == true) {
-                val dataElement = jsonResponse.get("data")
-                if (dataElement.isJsonObject) dataElement.asJsonObject else null
-            } else jsonResponse
-
-            if (response.isSuccessful && data?.has("access_token") == true) {
-                val accessToken = data.get("access_token").asString
-                val refreshToken = data.get("refresh_token").asString
-                // 不再硬编码 "User"，使用邮箱名作为临时展示名
-                val tempName = email.substringBefore("@")
-                val user = User(id = 0, username = tempName, email = email, password = "")
-                Result.success(AuthResult(user, accessToken, refreshToken))
-            } else {
-                val message = jsonResponse?.get("message")?.asString ?: "Login failed (${response.code})"
-                Result.failure(Exception(message))
-            }
-        } catch (e: Exception) {
-            Log.e("UserRepository", "LoginWithCode Error", e)
-            Result.failure(e)
-        }
+            val response = aliClient.request(
+                method = "POST",
+                path = "/login_with_code",
+                body = mapOf("email" to email, "code" to code, "verification_id" to id),
+                responseType = AuthData::class.java
+            )
+            if (response != null) {
+                tokenManager.saveTokens(response.accessToken, response.refreshToken)
+                settingsManager.setLoggedIn(true, response.user.username)
+                fetchUserProfile(response.user.username)
+                Result.success(response)
+            } else Result.failure(Exception("Login failed"))
+        } catch (e: Exception) { Result.failure(e) }
     }
 
     /**
-     * 6. 更新用户信息 (同步到云端)
+     * 注册 (阿里云适配)
      */
-    suspend fun updateProfile(accessToken: String, nickname: String, description: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun register(user: User, code: String, id: String): Result<AuthData> = withContext(Dispatchers.IO) {
         try {
-            Log.d("UserRepository", "Updating profile: nickname=$nickname, description=$description")
-            val json = JsonObject().apply {
-                addProperty("nickname", nickname)
-                addProperty("description", description)
+            val response = aliClient.request(
+                method = "POST",
+                path = "/register",
+                body = mapOf(
+                    "username" to user.username,
+                    "password" to user.password,
+                    "email" to user.email,
+                    "code" to code,
+                    "verification_id" to id
+                ),
+                responseType = AuthData::class.java
+            )
+            if (response != null) {
+                tokenManager.saveTokens(response.accessToken, response.refreshToken)
+                settingsManager.setLoggedIn(true, response.user.username)
+                _userProfile.value = UserProfile(nickname = response.user.username)
+                Result.success(response)
+            } else Result.failure(Exception("Register failed"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    /**
+     * 修改阿里云上的用户信息
+     */
+    suspend fun updateUserProfile(nickname: String, description: String, avatarUrl: String = ""): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            // 注意：这里由于 _userProfile.value.nickname 在云端同步后已经是真实昵称了
+            // 为了安全，我们需要使用保存在 DataStore 中的唯一 username 作为主键
+            val prefs = settingsManager.settingsFlow.first()
+            val currentUsername = prefs.savedUsername
+            
+            val updateData = mutableMapOf(
+                "username" to currentUsername,
+                "nickname" to nickname, 
+                "description" to description
+            )
+            if (avatarUrl.isNotEmpty()) {
+                updateData["avatarUrl"] = avatarUrl
             }
             
-            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/user/basic/edit")
-                .post(requestBody)
-                .addHeader("Authorization", "Bearer $accessToken")
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
+            val response = aliClient.request(
+                method = "POST",
+                path = "/update_profile?username=$currentUsername",
+                body = updateData,
+                responseType = Map::class.java
+            )
 
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "UpdateProfile Response (${response.code}): $responseBody")
-
-            if (response.isSuccessful) {
+            if (response != null && (response["status"] == "success" || response["statusCode"] == 200.0)) {
+                _userProfile.value = _userProfile.value.copy(
+                    nickname = nickname,
+                    description = description,
+                    avatarUrl = if (avatarUrl.isNotEmpty()) avatarUrl else _userProfile.value.avatarUrl
+                )
                 Result.success(Unit)
             } else {
-                val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-                val message = jsonResponse?.get("message")?.asString ?: "Profile update failed (${response.code})"
-                Result.failure(Exception(message))
+                Result.failure(Exception("Update failed"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "UpdateProfile Error", e)
             Result.failure(e)
         }
+    }
+
+    suspend fun logout() {
+        tokenManager.clear()
+        settingsManager.logout()
+        _userProfile.value = UserProfile()
     }
 
     /**
-     * 7. 获取用户信息 (从云端拉取)
+     * 获取 OSS 上传所需的 STS 临时凭证
      */
-    suspend fun getUserProfile(accessToken: String): Result<JsonObject> = withContext(Dispatchers.IO) {
+    suspend fun fetchSTSToken(): Result<Map<String, String>> = withContext(Dispatchers.IO) {
         try {
-            Log.d("UserRepository", "Fetching user profile from cloud (POST): $baseUrl/user/info")
-            // 某些环境下 GET 会返回 501，尝试使用 POST (即使没有 body)
-            val emptyBody = "{}".toRequestBody("application/json; charset=utf-8".toMediaType())
-            val request = Request.Builder()
-                .url("$baseUrl/user/info")
-                .post(emptyBody)
-                .addHeader("Authorization", "Bearer $accessToken")
-                .addHeader("x-device-id", deviceId)
-                .addHeader("X-CloudBase-Env", envId)
-                .build()
-
-            val response = client.newCall(request).execute()
-            val responseBody = response.body?.string() ?: ""
-            Log.d("UserRepository", "GetUserProfile Response (${response.code}): $responseBody")
-
-            if (response.isSuccessful) {
-                val jsonResponse = gson.fromJson(responseBody, JsonObject::class.java)
-                val data = if (jsonResponse.has("data") && jsonResponse.get("data").isJsonObject) {
-                    jsonResponse.getAsJsonObject("data")
-                } else {
-                    jsonResponse
-                }
-                Result.success(data)
+            val response = aliClient.request(
+                method = "GET",
+                path = "/get_sts_token",
+                responseType = Map::class.java
+            )
+            if (response != null) {
+                @Suppress("UNCHECKED_CAST")
+                Result.success(response as Map<String, String>)
             } else {
-                val jsonResponse = try { gson.fromJson(responseBody, JsonObject::class.java) } catch (e: Exception) { null }
-                val message = jsonResponse?.get("message")?.asString ?: "Failed to fetch profile (${response.code})"
-                Result.failure(Exception(message))
+                Result.failure(Exception("Failed to get STS token"))
             }
         } catch (e: Exception) {
-            Log.e("UserRepository", "GetUserProfile Error", e)
             Result.failure(e)
         }
     }
-
-    fun logout() {}
-    fun getCurrentUser(): User? = null
 }
+
+data class UserProfile(
+    val nickname: String = "Guest",
+    val description: String = "Offline User",
+    val avatarUrl: String = "",
+    val totalTranslations: Int = 0,
+    val accuracy: Float = 0.0f,
+    val expertLevel: Int = 0
+)
+
+data class AuthData(
+    @SerializedName("user") val user: User,
+    @SerializedName("access_token") val accessToken: String,
+    @SerializedName("refresh_token") val refreshToken: String
+)

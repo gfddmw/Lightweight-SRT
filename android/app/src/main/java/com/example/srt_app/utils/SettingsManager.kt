@@ -28,24 +28,12 @@ class SettingsManager(context: Context) {
         val FLASH_ON_TRANSLATION = booleanPreferencesKey("flash_on_translation")
         val VIBRATION = booleanPreferencesKey("vibration")
         
-        // User Profile Stats
-        val USER_NAME = stringPreferencesKey("user_name")
-        val USER_ROLE = stringPreferencesKey("user_role")
-        val TOTAL_TRANSLATIONS = intPreferencesKey("total_translations")
-        val ACCURACY = floatPreferencesKey("accuracy")
-        val STREAK_DAYS = intPreferencesKey("streak_days")
-        val EXPERT_LEVEL = intPreferencesKey("expert_level")
-        val HELPED_COUNT = intPreferencesKey("helped_count")
-        val FASTEST_DELAY = floatPreferencesKey("fastest_delay")
-        
-        // Auth State
+        // Auth State (Minimal)
         val IS_LOGGED_IN = booleanPreferencesKey("is_logged_in")
-        val AUTH_TOKEN = stringPreferencesKey("auth_token")
-        val ACCESS_TOKEN = stringPreferencesKey("access_token")
-        val REFRESH_TOKEN = stringPreferencesKey("refresh_token")
+        val SAVED_USERNAME = stringPreferencesKey("saved_username")
     }
 
-    val settingsFlow: Flow<UserSettings> = dataStore.data
+    val settingsFlow: Flow<LocalPreferences> = dataStore.data
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -53,7 +41,7 @@ class SettingsManager(context: Context) {
                 throw exception
             }
         }.map { preferences ->
-            UserSettings(
+            LocalPreferences(
                 appLanguage = preferences[PreferencesKeys.APP_LANGUAGE] ?: "en",
                 signLanguageStandard = preferences[PreferencesKeys.SIGN_LANGUAGE_STANDARD] ?: "ASL",
                 outputLanguage = preferences[PreferencesKeys.OUTPUT_LANGUAGE] ?: "en",
@@ -64,54 +52,24 @@ class SettingsManager(context: Context) {
                 displayDuration = preferences[PreferencesKeys.DISPLAY_DURATION] ?: "5s",
                 flashOnTranslation = preferences[PreferencesKeys.FLASH_ON_TRANSLATION] ?: false,
                 vibration = preferences[PreferencesKeys.VIBRATION] ?: true,
-                
-                // Profile
-                userName = preferences[PreferencesKeys.USER_NAME] ?: "Guest",
-                userRole = preferences[PreferencesKeys.USER_ROLE] ?: "New User",
-                totalTranslations = preferences[PreferencesKeys.TOTAL_TRANSLATIONS] ?: 0,
-                accuracy = preferences[PreferencesKeys.ACCURACY] ?: 0.0f,
-                streakDays = preferences[PreferencesKeys.STREAK_DAYS] ?: 0,
-                expertLevel = preferences[PreferencesKeys.EXPERT_LEVEL] ?: 0,
-                helpedCount = preferences[PreferencesKeys.HELPED_COUNT] ?: 0,
-                fastestDelay = preferences[PreferencesKeys.FASTEST_DELAY] ?: 0.0f,
-
-                // Auth
                 isLoggedIn = preferences[PreferencesKeys.IS_LOGGED_IN] ?: false,
-                authToken = preferences[PreferencesKeys.AUTH_TOKEN] ?: "",
-                accessToken = preferences[PreferencesKeys.ACCESS_TOKEN] ?: "",
-                refreshToken = preferences[PreferencesKeys.REFRESH_TOKEN] ?: ""
+                savedUsername = preferences[PreferencesKeys.SAVED_USERNAME] ?: ""
             )
         }
 
-    suspend fun setLoggedIn(loggedIn: Boolean, token: String = "", name: String = "", role: String = "", accessToken: String = "", refreshToken: String = "") {
+    suspend fun setLoggedIn(loggedIn: Boolean, username: String = "") {
         dataStore.edit { 
             it[PreferencesKeys.IS_LOGGED_IN] = loggedIn
-            it[PreferencesKeys.AUTH_TOKEN] = token
-            it[PreferencesKeys.ACCESS_TOKEN] = accessToken
-            it[PreferencesKeys.REFRESH_TOKEN] = refreshToken
-            if (name.isNotEmpty()) it[PreferencesKeys.USER_NAME] = name
-            if (role.isNotEmpty()) it[PreferencesKeys.USER_ROLE] = role
+            if (username.isNotEmpty()) {
+                it[PreferencesKeys.SAVED_USERNAME] = username
+            }
         }
-    }
-
-    suspend fun updateTokens(accessToken: String, refreshToken: String) {
-        dataStore.edit {
-            it[PreferencesKeys.ACCESS_TOKEN] = accessToken
-            it[PreferencesKeys.REFRESH_TOKEN] = refreshToken
-        }
-    }
-
-    /**
-     * 同步获取 AccessToken (供拦截器使用)
-     */
-    suspend fun getAccessTokenSync(): String {
-        return dataStore.data.first()[PreferencesKeys.ACCESS_TOKEN] ?: ""
     }
 
     suspend fun logout() {
         dataStore.edit { 
             it[PreferencesKeys.IS_LOGGED_IN] = false
-            it[PreferencesKeys.AUTH_TOKEN] = ""
+            it[PreferencesKeys.SAVED_USERNAME] = ""
         }
     }
 
@@ -155,28 +113,15 @@ class SettingsManager(context: Context) {
         dataStore.edit { it[PreferencesKeys.VIBRATION] = enabled }
     }
 
-    // Profile Updates
-    suspend fun updateUserName(name: String) {
-        dataStore.edit { it[PreferencesKeys.USER_NAME] = name }
-    }
-
-    suspend fun updateUserRole(role: String) {
-        dataStore.edit { it[PreferencesKeys.USER_ROLE] = role }
-    }
-
-    suspend fun updateStats(translations: Int, accuracy: Float) {
-        dataStore.edit { 
-            it[PreferencesKeys.TOTAL_TRANSLATIONS] = translations
-            it[PreferencesKeys.ACCURACY] = accuracy
-        }
-    }
-
     suspend fun resetSettings() {
         dataStore.edit { it.clear() }
     }
 }
 
-data class UserSettings(
+/**
+ * 仅包含本地偏好设置与基本的登录状态位
+ */
+data class LocalPreferences(
     val appLanguage: String,
     val signLanguageStandard: String,
     val outputLanguage: String,
@@ -187,20 +132,6 @@ data class UserSettings(
     val displayDuration: String,
     val flashOnTranslation: Boolean,
     val vibration: Boolean,
-    
-    // Profile Data
-    val userName: String,
-    val userRole: String,
-    val totalTranslations: Int,
-    val accuracy: Float,
-    val streakDays: Int,
-    val expertLevel: Int,
-    val helpedCount: Int,
-    val fastestDelay: Float,
-    
-    // Auth State
     val isLoggedIn: Boolean,
-    val authToken: String,
-    val accessToken: String,
-    val refreshToken: String
+    val savedUsername: String
 )

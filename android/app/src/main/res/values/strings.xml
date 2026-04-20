@@ -128,4 +128,9 @@
     <string name="start_journey">Start Your Interpretation Journey</string>
     <string name="username">Username</string>
     <string name="already_have_account">Already have an account?</string>
+    <string name="bio">Bio</string>
+    <string name="save_changes">Save Changes</string>
+    <string name="profile_updated">Profile updated!</string>
+    <string name="profile_updated_avatar">Profile and avatar updated!</string>
+    <string name="upload_failed">Upload failed: %s</string>
 </resources>

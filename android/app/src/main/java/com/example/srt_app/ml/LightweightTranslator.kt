@@ -43,51 +43,77 @@ class LightweightTranslator(private val context: Context) {
     private fun loadLabels() {
         try {
             val content = context.assets.open(LABEL_NAME).bufferedReader().use { it.readText() }
-            classLabels = content.lines().filter { it.isNotBlank() }
+            classLabels = content.lines()
+                .filter { it.isNotBlank() }
+                .map { line ->
+                    // 标签格式通常为 "index\tlabel" 或 "index label"
+                    val parts = line.split(Regex("\\s+"), 2)
+                    if (parts.size > 1) parts[1] else line
+                }
             Log.d("LightweightTranslator", "Labels loaded: ${classLabels.size} classes")
         } catch (e: IOException) {
             Log.e("LightweightTranslator", "Error loading labels", e)
         }
     }
 
+    data class TranslationResult(val text: String, val confidence: Float)
+
     /**
      * 接收预处理后的连续帧特征进行手语推理。
-     * 输入格式要求：(1, 3, 64, 21, 1) -> (Batch, Channels, Time, Joints, Person)
-     * 这里的 framesFeature 应该是按照这个顺序排列好的 FloatArray
+     * 输入格式要求：(1, 3, 64, 42, 1) -> (Batch, Channels, Time, Joints, Person)
      */
-    suspend fun translate(framesFeature: FloatArray): String {
+    suspend fun translate(framesFeature: FloatArray): TranslationResult {
         return withContext(Dispatchers.Default) {
-            if (module == null) return@withContext ""
+            if (module == null) {
+                Log.e("LightweightTranslator", "Inference failed: Module not initialized")
+                return@withContext TranslationResult("", 0.0f)
+            }
 
             try {
-                // 1. 将输入的特征转换为 Tensor
-                // 输入形状: [1, 3, 64, 21, 1]
-                val inputTensor = Tensor.fromBlob(framesFeature, longArrayOf(1, 3, 64, 21, 1))
-
-                // 2. 执行推理
-                val outputTensor = module!!.forward(IValue.from(inputTensor)).toTensor()
-                val scores = outputTensor.dataAsFloatArray
-
-                // 3. 解析输出 (ArgMax)
-                var maxScore = -1.0f
-                var maxIdx = -1
-                for (i in scores.indices) {
-                    if (scores[i] > maxScore) {
-                        maxScore = scores[i]
-                        maxIdx = i
-                    }
+                val startTime = System.currentTimeMillis()
+                
+                // 1. 输入数据校验
+                val expectedSize = 1 * 3 * 64 * 42 * 1
+                if (framesFeature.size != expectedSize) {
+                    Log.e("LightweightTranslator", "Input size mismatch! Expected $expectedSize, got ${framesFeature.size}")
+                    return@withContext TranslationResult("", 0.0f)
                 }
 
-                if (maxIdx != -1 && maxIdx < classLabels.size) {
-                    val result = classLabels[maxIdx]
-                    Log.d("LightweightTranslator", "Prediction: $result (score: $maxScore)")
-                    result
+                // 2. 将输入的特征转换为 Tensor
+                // 输入形状调整为 ST-GCN 标准格式: [1, 3, 64, 21, 2]
+                // N=Batch, C=XYZ, T=Frames, V=Joints, M=Hands
+                val inputTensor = Tensor.fromBlob(framesFeature, longArrayOf(1, 3, 64, 21, 2))
+                Log.d("LightweightTranslator", ">>> [INFERENCE] Start: Tensor shape (1, 3, 64, 21, 2)")
+
+                // 3. 执行推理
+                val outputValue = module!!.forward(IValue.from(inputTensor))
+                val outputTensor = outputValue.toTensor()
+                val scores = outputTensor.dataAsFloatArray
+                
+                val inferenceTime = System.currentTimeMillis() - startTime
+                Log.d("LightweightTranslator", ">>> [INFERENCE] End: Cost ${inferenceTime}ms, Output classes: ${scores.size}")
+
+                // 4. 解析输出 (找到 Top-3 置信度用于调试)
+                val topResults = scores.withIndex()
+                    .sortedByDescending { it.value }
+                    .take(3)
+                
+                for (res in topResults) {
+                    val label = if (res.index < classLabels.size) classLabels[res.index] else "Unknown(${res.index})"
+                    Log.d("LightweightTranslator", "Top Result: [$label] Index: ${res.index}, Score: ${res.value}")
+                }
+
+                val bestResult = topResults.first()
+                if (bestResult.index < classLabels.size) {
+                    val label = classLabels[bestResult.index]
+                    TranslationResult(label, bestResult.value)
                 } else {
-                    ""
+                    Log.w("LightweightTranslator", "Best index ${bestResult.index} out of labels bounds (${classLabels.size})")
+                    TranslationResult("", 0.0f)
                 }
             } catch (e: Exception) {
                 Log.e("LightweightTranslator", "Inference error", e)
-                ""
+                TranslationResult("", 0.0f)
             }
         }
     }

@@ -9,5 +9,6 @@ data class User(
     val id: Int = 0,
     val username: String,
     val email: String,
-    val password: String
+    val password: String,
+    val avatarUrl: String = "" // 新增本地头像存储
 )

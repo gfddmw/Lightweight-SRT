@@ -51,8 +51,6 @@ fun SRTScreen(
 ) {
     val signShort = signLanguage
     val outputShort = if (outputLanguage == "en") "EN" else "ZH"
-    
-    var showTypeBackDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -161,16 +159,6 @@ fun SRTScreen(
                             letterSpacing = 2.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Type Back Button
-                            IconButton(
-                                onClick = { showTypeBackDialog = true },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.Keyboard, contentDescription = "Type", tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
-                            }
-                        }
                     }
                     
                     Spacer(modifier = Modifier.height(8.dp))
@@ -216,66 +204,14 @@ fun SRTScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
 
-        // 4. Floating Mic Action
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(bottom = 128.dp, end = 24.dp)
-        ) {
-            FloatingMicButton()
-        }
-
-        // 5. Bottom Navigation Bar
+        // 4. Bottom Navigation Bar
         SenseBottomNavBar(
             modifier = Modifier.align(Alignment.BottomCenter),
             selectedTab = 1,
             onNavigateToProfile = onNavigateToProfile,
             onNavigateToTranslator = { /* Already here */ }
         )
-        
-        // 6. Type Back Dialog
-        if (showTypeBackDialog) {
-            TypeBackDialog(
-                onDismiss = { showTypeBackDialog = false },
-                onSend = { text ->
-                    onTypeBackSend(text)
-                    showTypeBackDialog = false
-                }
-            )
-        }
     }
-}
-
-@Composable
-fun TypeBackDialog(onDismiss: () -> Unit, onSend: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.type_back)) },
-        text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text(stringResource(R.string.type_something)) },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
-            )
-        },
-        confirmButton = {
-            Button(
-                onClick = { if (text.isNotBlank()) onSend(text) },
-                enabled = text.isNotBlank()
-            ) {
-                Text(stringResource(R.string.send))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
 }
 
 @Composable
