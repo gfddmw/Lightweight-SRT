@@ -36,7 +36,8 @@ class IO():
         if p.config is not None:
             # load config file
             with open(p.config, 'r') as f:
-                default_arg = yaml.load(f, Loader=yaml.FullLoader)
+                with open(p.config, 'r', encoding='utf-8') as f:
+                    default_arg = yaml.load(f, Loader=yaml.FullLoader)
 
             # update parser from config file
             key = vars(p).keys()
@@ -113,5 +114,16 @@ class IO():
         parser.add_argument('--weights', default=None, help='the weights for network initialization')
         parser.add_argument('--ignore_weights', type=str, default=[], nargs='+', help='the name of weights which will be ignored in the initialization')
         #endregion yapf: enable
+        
+        parser.add_argument('--base_lr', type=float, default=0.01)
+        parser.add_argument('--batch_size', type=int, default=16)
+        parser.add_argument('--test_batch_size', type=int, default=32)
+        parser.add_argument('--optimizer', type=str, default='SGD')
+        parser.add_argument('--weight_decay', type=float, default=0.0001)
+        parser.add_argument('--step', type=int, default=[], nargs='+')
+        parser.add_argument('--nesterov', type=str2bool, default=False)
+        parser.add_argument('--show_topk', type=int, default=[1, 5], nargs='+')
 
+        parser.add_argument('--multi_stream', type=str2bool, default=False, help='enable multi-stream input')
+        parser.add_argument('--stream_names', type=str, default='joints', help='comma-separated stream names (e.g., joints,bones)')
         return parser

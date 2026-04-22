@@ -50,7 +50,6 @@ class REC_KD_Processor(Processor):
 
     def load_model(self):
         self.model = self.io.load_model(self.arg.model, **(self.arg.model_args))
-        self.model.apply(weights_init)
         self.ce_loss = nn.CrossEntropyLoss()
 
     def load_optimizer(self):
@@ -85,35 +84,64 @@ class REC_KD_Processor(Processor):
         accuracy = sum(hit_top_k) * 1.0 / len(hit_top_k)
         self.io.print_log('\tTop{}: {:.2f}%'.format(k, 100 * accuracy))
 
+    # 在 REC_KD_Processor 类中
     def _parse_batch(self, batch):
+        """
+        支持两种格式:
+        1. 单流: (data, label) 或 (data, teacher_logits, label, vid)
+        2. 多流: ({"joints":..., "bones":..., "motion":...}, label) 
+                或 (dict, teacher_logits, label, vid)
+        """
+        # 解包基础字段
         if len(batch) == 2:
-            data, label = batch
+            data_or_dict, label = batch
             teacher_logits = None
             vid = None
         elif len(batch) == 4:
-            data, teacher_logits, label, vid = batch
+            data_or_dict, teacher_logits, label, vid = batch
         else:
-            raise ValueError(
-                'Unsupported batch format. Expect 2 or 4 items, got {}'.format(len(batch))
-            )
-        return data, teacher_logits, label, vid
+            raise ValueError(f'Unsupported batch format, got {len(batch)} items')
+
+        # 判断是否为多流字典输入
+        if isinstance(data_or_dict, dict):
+            # 多流模式: 对每个流做格式转换
+            streams = {}
+            for k in ['joints', 'bones', 'motion']:
+                if k in data_or_dict:
+                    streams[k] = self._to_stgcn_input(data_or_dict[k])
+            return streams, teacher_logits, label, vid
+        else:
+            # 单流模式: 保持原有逻辑
+            data = self._to_stgcn_input(data_or_dict)
+            return data, teacher_logits, label, vid
 
     def _to_stgcn_input(self, data):
-        # Expected by ST-GCN: (N, C, T, V, M)
+        """
+        将 (N, T, F) 或 (N, C, T, V) 转换为 ST-GCN 需要的 (N, C, T, V, M)
+        M=1 (单人员), 保持向后兼容
+        """
         if data.dim() == 5:
-            return data
-
-        # StudentDataset typically returns (N, T, F)
+            return data  # 已经是目标格式
+        
+        # 处理展平的 (N, T, F) 格式
         if data.dim() == 3:
             n, t, f = data.shape
-            if f % 3 != 0:
-                raise ValueError('Flatten feature dim must be divisible by 3, got {}'.format(f))
-            v = f // 3
-            data = data.view(n, t, v, 3).permute(0, 3, 1, 2).contiguous().unsqueeze(-1)
+            if f % 3 != 0 and f % 2 != 0:
+                # 尝试直接作为 (N, T, V*C) 处理，C=2 或 3
+                raise ValueError(f'Feature dim {f} not divisible by 2 or 3')
+            
+            # 假设 C=2 (x,y)，则 V = f // 2
+            c = 2 if f % 2 == 0 else 3
+            v = f // c
+            # (N, T, V, C) -> (N, C, T, V) -> (N, C, T, V, 1)
+            data = data.view(n, t, v, c).permute(0, 3, 1, 2).contiguous().unsqueeze(-1)
             return data
-
-        raise ValueError('Unsupported data dim {} for ST-GCN input'.format(data.dim()))
-
+        
+        # 处理已经是 (N, C, T, V) 的情况
+        if data.dim() == 4:
+            return data.unsqueeze(-1)
+            
+        raise ValueError(f'Unsupported data dim {data.dim()} for ST-GCN input')
     def _kd_loss(self, student_logits, teacher_logits, label):
         ce = self.ce_loss(student_logits, label)
         if teacher_logits is None:
@@ -132,36 +160,58 @@ class REC_KD_Processor(Processor):
         self.model.train()
         self.adjust_lr()
         loader = self.data_loader['train']
-
-        loss_value = []
-        ce_value = []
-        kd_value = []
-
+        
+        loss_value, ce_value, kd_value = [], [], []
+        
         for batch in loader:
-            data, teacher_logits, label, _ = self._parse_batch(batch)
-
-            data = data.float().to(self.dev)
-            data = self._to_stgcn_input(data)
+            # 解析 batch (可能返回 dict 或 tensor)
+            data_input, teacher_logits, label, _ = self._parse_batch(batch)
+            
+            # 处理多流/单流输入
+            if isinstance(data_input, dict):
+                # 多流: 分别移动到 device
+                model_kwargs = {k: v.float().to(self.dev) for k, v in data_input.items()}
+            else:
+                # 单流: 保持原逻辑
+                model_kwargs = {'data': data_input.float().to(self.dev)}
+                
             label = label.long().to(self.dev)
             if teacher_logits is not None:
                 teacher_logits = teacher_logits.float().to(self.dev)
-
-            output = self.model(data)
-            loss, ce, kd = self._kd_loss(output, teacher_logits, label)
-
+            
+            # 前向传播 (支持多返回值)
+            output = self.model(**model_kwargs)
+            if isinstance(output, tuple):
+                fused_logits, branch_logits = output  # Late Fusion 模式
+            else:
+                fused_logits, branch_logits = output, None  # 单流模式
+            
+            # 计算 Loss (主 Loss + 可选辅助 Loss)
+            loss, ce, kd = self._kd_loss(fused_logits, teacher_logits, label)
+            
+            # 可选: 添加分支辅助 CE Loss (提升多流特征对齐)
+            if branch_logits is not None and self.arg.use_aux_loss:
+                aux_ce = sum(F.cross_entropy(bl, label) for bl in branch_logits) / len(branch_logits)
+                loss = loss + self.arg.aux_loss_weight * aux_ce
+            
+            # 反向传播
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
-            self.iter_info['loss'] = loss.item()
-            self.iter_info['ce_loss'] = ce.item()
-            self.iter_info['kd_loss'] = kd.item()
-            self.iter_info['lr'] = '{:.6f}'.format(self.lr)
-
+            
+            # 记录日志
+            self.iter_info.update({
+                'loss': loss.item(),
+                'ce_loss': ce.item(),
+                'kd_loss': kd.item(),
+                'lr': f'{self.lr:.6f}'
+            })
+            if branch_logits is not None:
+                self.iter_info['aux_ce'] = aux_ce.item() if self.arg.use_aux_loss else 0.0
+                
             loss_value.append(loss.item())
             ce_value.append(ce.item())
             kd_value.append(kd.item())
-
             self.show_iter_info()
             self.meta_info['iter'] += 1
 
@@ -172,6 +222,10 @@ class REC_KD_Processor(Processor):
         self.io.print_timer()
 
     def test(self, evaluation=True):
+        if 'test' not in self.data_loader:
+            self.data_loader['test'] = self.data_loader['train']
+            self.io.print_log("[WARN] No test dataset found, using train dataset for evaluation.")
+
         self.model.eval()
         loader = self.data_loader['test']
 
@@ -180,16 +234,23 @@ class REC_KD_Processor(Processor):
         label_frag = []
 
         for batch in loader:
-            data, teacher_logits, label, _ = self._parse_batch(batch)
+            data_input, teacher_logits, label, _ = self._parse_batch(batch)
 
-            data = data.float().to(self.dev)
-            data = self._to_stgcn_input(data)
+            # 🚀 修复：兼容多流(dict)和单流输入，与 train 方法保持一致
+            if isinstance(data_input, dict):
+                model_kwargs = {k: v.float().to(self.dev) for k, v in data_input.items()}
+            else:
+                model_kwargs = {'data': data_input.float().to(self.dev)}
+                
             label = label.long().to(self.dev)
             if teacher_logits is not None:
                 teacher_logits = teacher_logits.float().to(self.dev)
 
             with torch.no_grad():
-                output = self.model(data)
+                output = self.model(**model_kwargs)
+                # 如果是多流返回元组，只取融合后的 logits
+                if isinstance(output, tuple):
+                    output = output[0]
 
             result_frag.append(output.data.cpu().numpy())
 
@@ -205,7 +266,6 @@ class REC_KD_Processor(Processor):
             self.show_epoch_info()
             for k in self.arg.show_topk:
                 self.show_topk(k)
-
     @staticmethod
     def get_parser(add_help=False):
         parent_parser = Processor.get_parser(add_help=False)
@@ -223,7 +283,14 @@ class REC_KD_Processor(Processor):
 
         parser.add_argument('--kd_alpha', type=float, default=0.5, help='KD weighting coefficient')
         parser.add_argument('--kd_temperature', type=float, default=4.0, help='KD temperature')
-
+        parser.add_argument('--use_aux_loss', type=str2bool, default=False, 
+                            help='Use auxiliary CE loss for each stream branch')
+        parser.add_argument('--aux_loss_weight', type=float, default=0.1,
+                            help='Weight for auxiliary branch loss')
+        
+        parser.add_argument('--train_feeder', type=str, default='feeder.feeder', help='train data loader class')
+        parser.add_argument('--multi_stream', type=str2bool, default=False, help='use multi-stream input')
+        parser.add_argument('--stream_names', type=str, default='joints,bones,motion', help='stream names')
         return parser
 
 if __name__ == '__main__':

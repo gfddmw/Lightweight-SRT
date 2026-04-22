@@ -1,0 +1,47 @@
+# configs/student/multi_stream.yaml
+model: src.student_model.architecture.multi_stream_stgcn.MultiStreamSTGCN
+
+model_args:
+  num_class: 1203                   # 类别数 
+  in_channels: 2                    # 输入通道 (x,y)
+  edge_importance_weighting: true   # ✅ STGCN 必需参数
+  
+  # ✅ 图参数 (必须包含 num_point=21 对应 MediaPipe 单手)
+  graph_args:
+    strategy: spatial
+    layout: 'openpose'               # 自定义布局名
+  
+  # ✅ STGCN 网络参数
+  num_person: 1
+  graph_initialization: 'spatial'
+
+# 数据加载 (保持不变)
+train_feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder_args:
+  index_path: processed/clean_indices.json
+  # index_path: processed/train_indices.json  # 🚀 改为训练集
+  data_dir: processed/skeletons
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
+  target_len: 64
+  is_train: true
+  teacher_logits_dir: processed/logits
+  label_map_path: processed/label_map.json
+
+test_feeder_args: # 🚀 新增测试集配置
+  index_path: processed/test_indices.json
+  data_dir: processed/skeletons
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
+  target_len: 64
+  is_train: false  # 测试集不做数据增强
+  label_map_path: processed/label_map.json
+  
+# 优化器
+base_lr: 0.01
+batch_size: 16
+optimizer: SGD
+weight_decay: 0.0001
+step: [30, 40]
+
+# 多流专用
+multi_stream: true
+stream_names: joints,bones,motion
