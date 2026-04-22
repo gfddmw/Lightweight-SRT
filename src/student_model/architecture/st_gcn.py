@@ -1,10 +1,40 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 
 from .utils.tgcn import ConvTemporalGraphical
 from .utils.graph import Graph
+
+
+class ShiftTemporalGraphical(nn.Module):
+    """Shift-based approximation for spatial graph convolution.
+
+    It replaces explicit adjacency multiplication with feature shifts
+    followed by a 1x1 projection.
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, shift_mode='spatial'):
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.shift_mode = shift_mode
+        self.proj = nn.Conv2d(in_channels * kernel_size, out_channels, kernel_size=1, bias=True)
+
+    def _roll(self, x, shift_index):
+        if self.shift_mode == 'temporal':
+            return torch.roll(x, shifts=shift_index, dims=2)
+        if self.shift_mode == 'both':
+            if shift_index % 2 == 0:
+                return torch.roll(x, shifts=shift_index, dims=2)
+            return torch.roll(x, shifts=shift_index, dims=3)
+        return torch.roll(x, shifts=shift_index, dims=3)
+
+    def forward(self, x, A):
+        shifted = [x]
+        for k in range(1, self.kernel_size):
+            shifted.append(self._roll(x, k))
+        x = torch.cat(shifted, dim=1)
+        x = self.proj(x)
+        return x.contiguous(), A
 
 class Model(nn.Module):
     r"""Spatial temporal graph convolutional networks.
@@ -29,9 +59,30 @@ class Model(nn.Module):
     def __init__(self, in_channels, num_class, graph_args,
                  edge_importance_weighting, **kwargs):
         super().__init__()
-        
-        valid_stgcn_kwargs = ['dropout']  # st_gcn.__init__ 只接受 dropout
+
+        valid_stgcn_kwargs = [
+            'dropout',
+            'use_shift_gcn',
+            'shift_mode',
+            'use_bottleneck',
+            'bottleneck_ratio',
+            'bottleneck_layers',
+        ]
         kwargs_filtered = {k: v for k, v in kwargs.items() if k in valid_stgcn_kwargs}
+
+        default_channels = [64, 64, 64, 64, 128, 128, 128, 256, 256, 256]
+        default_strides = [1, 1, 1, 1, 2, 1, 1, 2, 1, 1]
+        self.channel_cfg = kwargs.get('channel_cfg', default_channels)
+        if len(self.channel_cfg) != len(default_strides):
+            raise ValueError('channel_cfg length must be 10, got {}'.format(len(self.channel_cfg)))
+        self.strides = kwargs.get('stride_cfg', default_strides)
+        if len(self.strides) != len(self.channel_cfg):
+            raise ValueError('stride_cfg length must match channel_cfg length')
+
+        bottleneck_layers = kwargs_filtered.get('bottleneck_layers', [8, 9, 10])
+        self.bottleneck_layers = set(int(x) for x in bottleneck_layers)
+        use_bottleneck = bool(kwargs_filtered.get('use_bottleneck', False))
+        bottleneck_ratio = int(kwargs_filtered.get('bottleneck_ratio', 4))
 
         # load graph
         self.graph = Graph(**graph_args)
@@ -44,18 +95,30 @@ class Model(nn.Module):
         kernel_size = (temporal_kernel_size, spatial_kernel_size)
         self.data_bn = nn.BatchNorm1d(in_channels * A.size(1))
         kwargs0 = {k: v for k, v in kwargs_filtered.items() if k != 'dropout'}
-        self.st_gcn_networks = nn.ModuleList((
-            st_gcn(in_channels, 64, kernel_size, 1, residual=False, **kwargs0),
-            st_gcn(64, 64, kernel_size, 1, **kwargs_filtered),
-            st_gcn(64, 64, kernel_size, 1, **kwargs_filtered),
-            st_gcn(64, 64, kernel_size, 1, **kwargs_filtered),
-            st_gcn(64, 128, kernel_size, 2, **kwargs_filtered),
-            st_gcn(128, 128, kernel_size, 1, **kwargs_filtered),
-            st_gcn(128, 128, kernel_size, 1, **kwargs_filtered),
-            st_gcn(128, 256, kernel_size, 2, **kwargs_filtered),
-            st_gcn(256, 256, kernel_size, 1, **kwargs_filtered),
-            st_gcn(256, 256, kernel_size, 1, **kwargs_filtered),
-        ))
+        layers = []
+        prev_channels = in_channels
+        for i, out_channels in enumerate(self.channel_cfg):
+            layer_id = i + 1
+            stride = self.strides[i]
+            block_kwargs = dict(kwargs_filtered)
+            block_kwargs.pop('bottleneck_layers', None)
+            if i == 0:
+                block_kwargs = dict(kwargs0)
+                block_kwargs.pop('bottleneck_layers', None)
+            block_kwargs['use_bottleneck'] = use_bottleneck and (layer_id in self.bottleneck_layers)
+            block_kwargs['bottleneck_ratio'] = bottleneck_ratio
+            layers.append(
+                st_gcn(
+                    prev_channels,
+                    out_channels,
+                    kernel_size,
+                    stride,
+                    residual=False if i == 0 else True,
+                    **block_kwargs
+                )
+            )
+            prev_channels = out_channels
+        self.st_gcn_networks = nn.ModuleList(layers)
 
         # initialize parameters for edge importance weighting
         if edge_importance_weighting:
@@ -67,7 +130,7 @@ class Model(nn.Module):
             self.edge_importance = [1] * len(self.st_gcn_networks)
 
         # fcn for prediction
-        self.fcn = nn.Conv2d(256, num_class, kernel_size=1)
+        self.fcn = nn.Conv2d(self.channel_cfg[-1], num_class, kernel_size=1)
 
     def forward(self, x):
 
@@ -118,6 +181,13 @@ class Model(nn.Module):
 
         return output, feature
 
+    def bn_l1_loss(self):
+        reg = torch.tensor(0.0, device=self.A.device)
+        for module in self.modules():
+            if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d)) and module.weight is not None:
+                reg = reg + module.weight.abs().sum()
+        return reg
+
 class st_gcn(nn.Module):
     r"""Applies a spatial temporal graph convolution over an input graph sequence.
 
@@ -149,29 +219,62 @@ class st_gcn(nn.Module):
                  kernel_size,
                  stride=1,
                  dropout=0,
-                 residual=True):
+                 residual=True,
+                 use_shift_gcn=False,
+                 shift_mode='spatial',
+                 use_bottleneck=False,
+                 bottleneck_ratio=4):
         super().__init__()
 
         assert len(kernel_size) == 2
         assert kernel_size[0] % 2 == 1
         padding = ((kernel_size[0] - 1) // 2, 0)
 
-        self.gcn = ConvTemporalGraphical(in_channels, out_channels,
-                                         kernel_size[1])
+        self.use_bottleneck = use_bottleneck
+        if use_shift_gcn:
+            self.gcn = ShiftTemporalGraphical(in_channels, out_channels, kernel_size[1], shift_mode=shift_mode)
+        else:
+            self.gcn = ConvTemporalGraphical(in_channels, out_channels, kernel_size[1])
 
-        self.tcn = nn.Sequential(
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(
-                out_channels,
-                out_channels,
-                (kernel_size[0], 1),
-                (stride, 1),
-                padding,
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.Dropout(dropout, inplace=True),
-        )
+        if self.use_bottleneck:
+            bottleneck_channels = max(out_channels // max(bottleneck_ratio, 1), 16)
+            self.bottleneck_reduce = nn.Conv2d(out_channels, bottleneck_channels, kernel_size=1)
+            self.bn_reduce = nn.BatchNorm2d(bottleneck_channels)
+            self.bottleneck_t = nn.Conv2d(
+                bottleneck_channels,
+                bottleneck_channels,
+                kernel_size=(3, 1),
+                stride=(stride, 1),
+                padding=(1, 0),
+                bias=False,
+            )
+            self.bn_t = nn.BatchNorm2d(bottleneck_channels)
+            self.bottleneck_v = nn.Conv2d(
+                bottleneck_channels,
+                bottleneck_channels,
+                kernel_size=(1, 3),
+                stride=1,
+                padding=(0, 1),
+                bias=False,
+            )
+            self.bn_v = nn.BatchNorm2d(bottleneck_channels)
+            self.bottleneck_expand = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1)
+            self.bn_expand = nn.BatchNorm2d(out_channels)
+            self.drop = nn.Dropout(dropout, inplace=True)
+        else:
+            self.tcn = nn.Sequential(
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(
+                    out_channels,
+                    out_channels,
+                    (kernel_size[0], 1),
+                    (stride, 1),
+                    padding,
+                ),
+                nn.BatchNorm2d(out_channels),
+                nn.Dropout(dropout, inplace=True),
+            )
 
         if not residual:
             class Zero(nn.Module):
@@ -197,6 +300,21 @@ class st_gcn(nn.Module):
 
         res = self.residual(x)
         x, A = self.gcn(x, A)
-        x = self.tcn(x) + res
+        if self.use_bottleneck:
+            x = self.bottleneck_reduce(x)
+            x = self.bn_reduce(x)
+            x = self.relu(x)
+            x = self.bottleneck_t(x)
+            x = self.bn_t(x)
+            x = self.relu(x)
+            x = self.bottleneck_v(x)
+            x = self.bn_v(x)
+            x = self.relu(x)
+            x = self.bottleneck_expand(x)
+            x = self.bn_expand(x)
+            x = self.drop(x)
+            x = x + res
+        else:
+            x = self.tcn(x) + res
 
         return self.relu(x), A

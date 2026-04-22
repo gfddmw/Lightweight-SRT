@@ -22,6 +22,11 @@ model_args:
   num_class: 2000
   dropout: 0.5
   edge_importance_weighting: True
+  use_shift_gcn: True
+  shift_mode: spatial
+  use_bottleneck: True
+  bottleneck_ratio: 4
+  bottleneck_layers: [8, 9, 10]
   graph_args:
     layout: 'openpose'
     strategy: 'spatial'
@@ -29,6 +34,7 @@ model_args:
 # kd
 kd_alpha: 0.5
 kd_temperature: 4.0
+bn_l1_lambda: 1.0e-5
 
 # optim
 weight_decay: 0.0001

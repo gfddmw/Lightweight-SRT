@@ -188,6 +188,10 @@ class REC_KD_Processor(Processor):
             
             # 计算 Loss (主 Loss + 可选辅助 Loss)
             loss, ce, kd = self._kd_loss(fused_logits, teacher_logits, label)
+            bn_sparse = torch.tensor(0.0, device=loss.device)
+            if self.arg.bn_l1_lambda > 0 and hasattr(self.model, 'bn_l1_loss'):
+                bn_sparse = self.arg.bn_l1_lambda * self.model.bn_l1_loss()
+                loss = loss + bn_sparse
             
             # 可选: 添加分支辅助 CE Loss (提升多流特征对齐)
             if branch_logits is not None and self.arg.use_aux_loss:
@@ -204,6 +208,7 @@ class REC_KD_Processor(Processor):
                 'loss': loss.item(),
                 'ce_loss': ce.item(),
                 'kd_loss': kd.item(),
+                'bn_sparse': bn_sparse.item(),
                 'lr': f'{self.lr:.6f}'
             })
             if branch_logits is not None:
@@ -287,6 +292,8 @@ class REC_KD_Processor(Processor):
                             help='Use auxiliary CE loss for each stream branch')
         parser.add_argument('--aux_loss_weight', type=float, default=0.1,
                             help='Weight for auxiliary branch loss')
+        parser.add_argument('--bn_l1_lambda', type=float, default=0.0,
+                    help='L1 regularization factor for BN gamma in network slimming')
         
         parser.add_argument('--train_feeder', type=str, default='feeder.feeder', help='train data loader class')
         parser.add_argument('--multi_stream', type=str2bool, default=False, help='use multi-stream input')

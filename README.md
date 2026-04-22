@@ -98,6 +98,39 @@ python src/student_model/distillation/recognition_kd.py --config configs/student
 ```
 *训练日志和权重将保存在 `./work_dir/` 目录下。*
 
+### 3.1 架构进化：Shift-GCN + BottleNeck + 结构化剪枝
+本仓库已支持三项可组合优化：
+
+1. **Shift-GCN 化**：
+    在 `model_args` 中打开 `use_shift_gcn: True`，使用 `torch.roll` 做时空平移，再用 `1x1` 卷积做通道交互，替代显式邻接矩阵乘法。
+
+2. **深层 BottleNeck**：
+    在 `model_args` 中打开 `use_bottleneck: True`，并配置 `bottleneck_layers`（默认 `[8, 9, 10]`）与 `bottleneck_ratio`（默认 `4`）。
+    对深层通道先降维，再做 `(3x1)` 与 `(1x3)` 时空卷积，再升维。
+
+3. **结构化剪枝（Network Slimming）**：
+    在训练配置设置 `bn_l1_lambda`（如 `1e-5`），对 BN 的 `gamma` 施加 L1 正则，随后按比例剪枝并重建小模型。
+
+示例流程：
+```bash
+# 1) 训练（已包含 BN gamma 的 L1 稀疏约束）
+python src/student_model/distillation/recognition_kd_hint_new.py \
+  --config configs/student/st_gcn/wlasl2000/train_kd_hint_new.yaml
+
+# 2) 按 BN gamma 全局阈值进行 15% 结构化剪枝
+python scripts/deploy/prune_student_model.py \
+  --weights work_dir/recognition/wlasl2000/ST_GCN_KD_HINT_NEW/epoch80_model.pt \
+  --output work_dir/recognition/wlasl2000/ST_GCN_KD_HINT_NEW/epoch80_model_pruned.pt \
+  --prune_ratio 0.15 \
+  --min_channels 16 \
+  --use_shift_gcn \
+  --use_bottleneck \
+  --bottleneck_layers 8 9 10
+
+# 3) 微调：加载剪枝后的 channel_cfg 与权重继续训练
+#    （建议较小学习率，例如 base_lr=0.01，训练 10~20 epoch）
+```
+
 ### 4. 可视化演示
 如果你想直观地查看数据流、骨骼点可视化以及模型前向传播闭环，可以运行：
 ```bash

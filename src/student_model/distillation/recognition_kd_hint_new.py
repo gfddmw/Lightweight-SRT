@@ -219,6 +219,11 @@ class REC_KD_HINT_Processor_New(Processor):
                 label=label,
             )
 
+            bn_sparse = torch.tensor(0.0, device=loss.device)
+            if self.arg.bn_l1_lambda > 0 and hasattr(self.model, "bn_l1_loss"):
+                bn_sparse = self.arg.bn_l1_lambda * self.model.bn_l1_loss()
+                loss = loss + bn_sparse
+
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
@@ -228,6 +233,7 @@ class REC_KD_HINT_Processor_New(Processor):
             self.iter_info["kd_loss"] = kd.item()
             self.iter_info["hint_loss"] = hint.item()
             self.iter_info["dynamic_alpha"] = dynamic_alpha
+            self.iter_info["bn_sparse"] = bn_sparse.item()
             self.iter_info["lr"] = "{:.6f}".format(self.lr)
 
             loss_value.append(loss.item())
@@ -313,6 +319,7 @@ class REC_KD_HINT_Processor_New(Processor):
         parser.add_argument("--teacher_feature_dim", type=int, default=1024)
         parser.add_argument("--adapter_hidden_dim", type=int, default=512)
         parser.add_argument("--hint_layer_weights", type=float, default=[1.0, 0.5], nargs="+")
+        parser.add_argument("--bn_l1_lambda", type=float, default=0.0)
 
         return parser
 
