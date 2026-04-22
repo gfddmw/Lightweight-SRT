@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/data_prep/build_dataset_json.py --subset train --input_json ./data/WLASL2000/preprocess/nslt_2000.json)"
+    ]
+  }
+}

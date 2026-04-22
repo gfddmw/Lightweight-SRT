@@ -1,0 +1,45 @@
+work_dir: ./work_dir/recognition/wlasl2000/ST_GCN_KD_HINT_NEW
+
+feeder: src.student_model.feeder.student_feature_dataset_new.StudentFeatureDatasetNew
+train_feeder_args:
+  split_json: ./data/nslt_2000.json
+  skeleton_dir: ./processed/skeletons
+  logits_dir: ./processed/logits
+  teacher_feature_dir: ./processed/teacher_features
+  subset: train
+  seq_len: 64
+test_feeder_args:
+  split_json: ./data/nslt_2000.json
+  skeleton_dir: ./processed/skeletons
+  logits_dir: ./processed/logits
+  teacher_feature_dir: ./processed/teacher_features
+  subset: test
+  seq_len: 64
+
+model: src.student_model.architecture.st_gcn.Model
+model_args:
+  in_channels: 3
+  num_class: 2000
+  dropout: 0.5
+  edge_importance_weighting: True
+  graph_args:
+    layout: 'openpose'
+    strategy: 'spatial'
+
+kd_alpha: 0.5
+kd_temperature: 4.0
+hint_weight: 0.1
+hint_layer_weights: [1.0, 0.5]
+student_feature_dim: 256
+teacher_feature_dim: 1024
+adapter_hidden_dim: 512
+
+weight_decay: 0.0001
+base_lr: 0.1
+step: [20, 40, 60]
+
+device: [0]
+batch_size: 64
+test_batch_size: 64
+num_epoch: 80
+num_worker: 4
