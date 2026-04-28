@@ -3,13 +3,13 @@ work_dir: ./work_dir/recognition/wlasl2000/ST_GCN_KD_Fast
 # feeder (team StudentDataset)
 feeder: src.student_model.feeder.student_dataset.StudentDataset
 train_feeder_args:
-  split_json: ./data/WLASL2000/preprocess/nslt_2000.json
+  split_json: ./data/nslt_2000.json
   skeleton_dir: ./processed/skeletons
   logits_dir: ./processed/logits
   subset: train
   seq_len: 64
 test_feeder_args:
-  split_json: ./data/WLASL2000/preprocess/nslt_2000.json
+  split_json: ./data/nslt_2000.json
   skeleton_dir: ./processed/skeletons
   logits_dir: ./processed/logits
   subset: test

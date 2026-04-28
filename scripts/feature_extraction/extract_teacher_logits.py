@@ -18,7 +18,7 @@ current_dir = os.path.dirname(os.path.realpath(__file__))
 
 data_root_path = os.path.abspath(os.path.join(current_dir, '../../data', 'WLASL2000'))
 # 查找json文件路径
-json_file_path = os.path.abspath(os.path.join(current_dir, '../../data/WLASL2000/preprocess', 'nslt_2000.json'))
+json_file_path = os.path.abspath(os.path.join(current_dir, '../../data', 'nslt_2000.json'))
 # 教师模型路径
 teach_weights_path = os.path.abspath(os.path.join(current_dir, '../../weights/teacher', 'nslt_2000_018216_0.448072.pt'))
 

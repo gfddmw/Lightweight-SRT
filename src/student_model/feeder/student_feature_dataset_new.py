@@ -110,7 +110,10 @@ class StudentFeatureDatasetNew(data_utl.Dataset):
 
         logits = np.load(logits_path).astype(np.float32)
         teacher_features = np.load(teacher_feature_path).astype(np.float32)
-        if teacher_features.ndim == 1:
+        # 修复：如果特征是展平的且大小不一（T' * 1024），则进行平均池化以对齐维度
+        if teacher_features.size % 1024 == 0 and teacher_features.size > 0:
+            teacher_features = teacher_features.reshape(-1, 1024).mean(axis=0, keepdims=True)
+        elif teacher_features.ndim == 1:
             teacher_features = teacher_features[None, :]
 
         if self.skeleton_transform is not None:

@@ -18,7 +18,7 @@ from src.common.datasets.nslt_dataset_all import NSLT as Dataset
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 DATA_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "../../data", "WLASL2000"))
-JSON_FILE = os.path.abspath(os.path.join(CURRENT_DIR, "../../data/WLASL2000/preprocess", "nslt_2000.json"))
+JSON_FILE = os.path.abspath(os.path.join(CURRENT_DIR, "../../data", "nslt_2000.json"))
 TEACHER_WEIGHTS = os.path.abspath(
     os.path.join(CURRENT_DIR, "../../weights/teacher", "nslt_2000_018216_0.448072.pt")
 )
@@ -58,7 +58,8 @@ def new_extract_teacher_logits_and_feature_vectors(model: InceptionI3d, inputs: 
         video_logits = torch.mean(per_frame_logits, dim=2)
 
         pooled_feature = model.extract_features(inputs)
-        feature_vector = pooled_feature.flatten(start_dim=1)
+        # 增加时间维度的平均池化，确保输出始终为 (N, 1024)
+        feature_vector = torch.mean(pooled_feature, dim=2).flatten(start_dim=1)
 
     return video_logits, feature_vector
 

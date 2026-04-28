@@ -22,16 +22,13 @@ model_args:
   num_class: 2000
   dropout: 0.5
   edge_importance_weighting: True
-  use_shift_gcn: True
-  shift_mode: spatial
-  use_bottleneck: True
-  bottleneck_ratio: 4
-  bottleneck_layers: [8, 9, 10]
+  use_shift_gcn: False
+  use_bottleneck: False
   graph_args:
     layout: 'openpose'
     strategy: 'spatial'
 
-kd_alpha: 0.5
+kd_alpha: 0.7
 kd_temperature: 4.0
 hint_weight: 0.1
 hint_layer_weights: [1.0, 0.5]
@@ -40,12 +37,13 @@ teacher_feature_dim: 1024
 adapter_hidden_dim: 512
 bn_l1_lambda: 1.0e-5
 
-weight_decay: 0.0001
-base_lr: 0.1
-step: [20, 40, 60]
+weight_decay: 0.00020137182536642675
+base_lr: 0.2
+step: [40, 70, 100]
 
 device: [0]
-batch_size: 64
-test_batch_size: 64
-num_epoch: 80
-num_worker: 4
+batch_size: 128
+test_batch_size: 128
+num_epoch: 120
+num_worker: 8
+eval_interval: 10

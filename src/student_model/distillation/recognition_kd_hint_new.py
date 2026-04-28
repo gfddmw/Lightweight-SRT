@@ -133,7 +133,8 @@ class REC_KD_HINT_Processor_New(Processor):
 
         output, feature = self.model.extract_feature(data)
         # logits: (N, num_class, T, V, M) -> (N, num_class)
-        logits = output.sum(dim=(2, 3, 4))
+        logits = output.mean(dim=(2, 3, 4))
+        #logits = output.sum(dim=(2, 3, 4))
         # two levels for hint loss:
         # - level 1: global pooled feature
         # - level 2: temporal pooled feature then node/person pooling

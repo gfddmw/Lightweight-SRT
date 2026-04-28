@@ -91,7 +91,7 @@ def new_run_report(split_json, skeleton_dir, logits_dir, teacher_feature_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build KD data coverage summary for reports")
-    parser.add_argument("--split_json", default="./data/WLASL2000/preprocess/nslt_2000.json")
+    parser.add_argument("--split_json", default="./data/nslt_2000.json")
     parser.add_argument("--skeleton_dir", default="./processed/skeletons")
     parser.add_argument("--logits_dir", default="./processed/logits")
     parser.add_argument("--teacher_feature_dir", default="./processed/teacher_features")
