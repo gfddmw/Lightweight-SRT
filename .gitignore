@@ -4,6 +4,10 @@
 *.pptx
 *.npy
 
+__pycache__/
+*.py[cod]
+*$py.class
+
 # 忽略存文件夹
 mytools/
 **/weights/
