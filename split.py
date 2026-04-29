@@ -1,37 +1,51 @@
 import json
 import re
-import random
 
-# 1. 读取全量数据
+# 1. 加载官方划分映射表 (nslt_2000.json)
+# 假设 nslt_2000.json 已放在 processed/ 目录下，若在其他位置请修改此处路径
+with open("Lightweight-SRT-main/data/nslt_2000.json", "r") as f:
+    split_map = json.load(f)
+
+# 2. 加载清洗后的索引列表
 with open("Lightweight-SRT-main/processed/clean_indices.json", "r") as f:
     all_samples = json.load(f)
 
-# 2. 提取唯一视频 ID (去掉括号后缀)
+train_samples = []
+test_samples = []
+missing_count = 0
+
+# 3. 辅助函数：提取基础 ID (去掉末尾的括号编号，如 "00295(0)" -> "00295")
 def get_base_id(sample_id):
     match = re.match(r"^(\d+)", sample_id)
     return match.group(1) if match else sample_id
 
-base_ids = list(set(get_base_id(s) for s in all_samples))
-random.seed(42) # 固定随机种子，保证每次划分结果一致
-random.shuffle(base_ids)
+# 4. 根据官方 subset 字段严格划分
+for sample_id in all_samples:
+    base_id = get_base_id(sample_id)
+    if base_id in split_map:
+        subset = split_map[base_id].get("subset", "train").strip().lower()
+        if subset == "train":
+            train_samples.append(sample_id)
+        elif subset == "test":
+            test_samples.append(sample_id)
+        else:
+            # 非 train/test 的样本（如 val）默认归入训练集
+            train_samples.append(sample_id)
+    else:
+        # 若视频 ID 不在映射表中，默认归入训练集并记录
+        train_samples.append(sample_id)
+        missing_count += 1
 
-# 3. 按 90% / 10% 划分 base ID
-split_idx = int(len(base_ids) * 0.9)
-train_base_ids = set(base_ids[:split_idx])
-test_base_ids = set(base_ids[split_idx:])
+print(f"📊 总样本数: {len(all_samples)}")
+print(f"📈 训练集样本数: {len(train_samples)}")
+print(f"📉 测试集样本数: {len(test_samples)}")
+if missing_count > 0:
+    print(f"⚠️ 未在 nslt_2000.json 中匹配的样本数: {missing_count} (已默认归入训练集)")
 
-# 4. 根据 base ID 分配全量样本
-train_samples = [s for s in all_samples if get_base_id(s) in train_base_ids]
-test_samples = [s for s in all_samples if get_base_id(s) in test_base_ids]
-
-print(f"总样本数: {len(all_samples)}")
-print(f"训练集样本数: {len(train_samples)}")
-print(f"测试集样本数: {len(test_samples)}")
-
-# 5. 保存
+# 5. 保存划分结果
 with open("Lightweight-SRT-main/processed/train_indices.json", "w") as f:
     json.dump(train_samples, f, indent=2)
 with open("Lightweight-SRT-main/processed/test_indices.json", "w") as f:
     json.dump(test_samples, f, indent=2)
 
-print("✅ 已成功生成 train_indices.json 和 test_indices.json")
+print("✅ 已成功按官方 subset 划分生成 train_indices.json 和 test_indices.json")

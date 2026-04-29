@@ -6,7 +6,21 @@ import json
 from pathlib import Path
 import os
 import sys
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+def _find_project_root():
+    """自动查找项目根目录（包含 processed/ 的目录）"""
+    current = Path(__file__).resolve()
+    for parent in [current] + list(current.parents):
+        if (parent / "processed").exists() or (parent / "Lightweight-SRT-main" / "processed").exists():
+            # 如果当前目录就有 processed/，就是根目录
+            if (parent / "processed").exists():
+                return parent
+            # 否则可能是嵌套的 Lightweight-SRT-main
+            if (parent / "Lightweight-SRT-main" / "processed").exists():
+                return parent / "Lightweight-SRT-main"
+    # 兜底：返回 3 级父目录
+    return Path(__file__).resolve().parents[3]
+PROJECT_ROOT = _find_project_root()
+
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 from src.common.transforms.skeleton_transforms import SkeletonCompose, TemporalCropOrPad
