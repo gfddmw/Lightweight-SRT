@@ -13,6 +13,7 @@ mytools/
 **/checkpoints/
 **/mytools/
 android/script
+/remotion-midterm
 
 # 忽略数据文件夹 (如果之前没加)
 data/WLASL2000/*.mp4
