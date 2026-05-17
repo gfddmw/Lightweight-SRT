@@ -91,6 +91,28 @@
 ### 5.1 快速搜索（WLASL100，10 Epoch）
 `python scripts/train/optuna_search_kd_hint_new.py --trials 20 --fast_epochs 10`
 
-### 5.2 正式训练（WLASL2000）
-`python src/student_model/distillation/recognition_kd_hint_new.py --config configs/student/st_gcn/wlasl2000/train_kd_hint_new.yaml`
+## 6. 多流蒸馏性能专题调研与突破 (2026-05-01)
+
+### 6.1 问题现象
+在 WLASL2000 全量训练中，多流模型（Joint+Bone+Motion）初始性能极差，在 50-80 Epoch 期间的 Top1 准确率仅为 **19%**，远低于单流 Fast-KD 模型（**28.24%**）。
+
+### 6.2 根因分析
+1.  **标签对齐失效 (致命)**：多流训练曾错误使用基于 Gloss 字母排序的 `label_map.json`，而教师模型与单流模型使用的是基于 ID 的 `nslt_2000.json`。这导致学生模型接收到了错误的蒸馏信号。
+2.  **空间信息丢失**：原配置开启了 `normalize_wrist: true`，丢失了手部在空间中的全局位置。而教师模型（I3D）是基于原始视频训练的，保留位置信息对对齐教师逻辑至关重要。
+3.  **架构与策略失配**：过早引入 `Shift-GCN` 和 `Bottleneck` 等复杂结构，在纯 Logits 蒸馏模式下反而增加了收敛难度。
+
+### 6.3 优化措施 (aligned_v2 方案)
+1.  **统一标签体系**：重构 `MultiStreamSkeletonDataset` 逻辑，强制使用 `nslt_2000.json` 索引，实现学生与教师的“零误差对齐”。
+2.  **保留全局特征**：将 `normalize_wrist` 设为 `false`，让学生模型看到与教师模型一致的坐标分布。
+3.  **回归标准架构**：暂时禁用 `Shift-GCN` 与 `Bottleneck`，改用标准 `ST-GCN` 进行三流融合，降低训练噪声。
+4.  **超参精细对齐**：采用 `batch_size: 64` 与 `base_lr: 0.1`（严格遵守线性缩放原则）。
+
+### 6.4 最终实验结果 (Epoch 70)
+经过上述优化，多流模型展现了极强的性能爆发力：
+- **最好 Top1 准确率**：**37.13%** (对比单流 28.24%，净提升 **+8.89%**)
+- **最好 Top5 准确率**：**69.26%**
+- **收敛状态**：在第 70 Epoch 降学习率至 0.001 后，模型进入极稳健的精修期，Top1 稳定在 37% 以上。
+
+### 6.5 结论
+通过“标签强制对齐”和“保留全局空间信息”，多流架构（Joint+Bone+Motion）在不使用特征蒸馏（Hint Loss）的情况下，仅靠 Logits 蒸馏就已大幅超越单流模型。这证明了多流特征在手语识别中具有极强的信息互补性，是实现高精度轻量化模型的关键路径。
 
