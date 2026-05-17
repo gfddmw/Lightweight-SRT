@@ -2,11 +2,11 @@ import json
 import re
 
 # 1. 读取原始标签文件
-with open("Lightweight-SRT-main/data/WLASL_v0.3.json", "r", encoding="utf-8") as f:
+with open("E:\A-NJU\Lightweight-SRT\data\WLASL_v0.3.json", "r", encoding="utf-8") as f:
     wlasl_data = json.load(f)
 
 # 2. 读取你的干净索引
-with open("Lightweight-SRT-main/processed/clean_indices.json", "r") as f:
+with open("E:\A-NJU\Lightweight-SRT\processed\clean_indices.json", "r") as f:
     clean_indices = json.load(f)
 
 # 3. 清洗索引，去掉 "(1)" 这样的后缀，只保留纯数字部分
@@ -34,16 +34,16 @@ found_count = 0
 for item in wlasl_data:
     gloss = item["gloss"]
     int_label = gloss_to_int[gloss]
-    
+
     for instance in item["instances"]:
         video_id = instance["video_id"]
-        
+
         # 检查这个样本是否在你的 clean_indices 里
         if int(video_id) in clean_ids_int:
             # 保持前导零的格式作为 key (对于有括号的，也保留括号)
             # 例如：匹配到 592，就把 "00592" 和 "00592(1)" 都加上
             base_str_id = str(int(video_id)).zfill(5)
-            
+
             # 找出所有以这个 base_str_id 开头的原始索引
             for original_idx in clean_indices:
                 if original_idx.startswith(base_str_id):
@@ -59,9 +59,9 @@ else:
     used_classes = sorted(set(label_map.values()))
     print(f"🎯 你的样本实际覆盖了 {len(used_classes)} 个不同的手语类别")
     print(f"   类别 ID 范围: {min(used_classes)} ~ {max(used_classes)}")
-    
+
     # 保存
-    out_path = "Lightweight-SRT-main/processed/label_map.json"
+    out_path = "E:\A-NJU\Lightweight-SRT\processed\label_map.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(label_map, f, indent=2)
     print(f"✅ 已保存真实的标签映射到 {out_path}")

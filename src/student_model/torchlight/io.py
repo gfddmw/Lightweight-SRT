@@ -61,7 +61,10 @@ class IO():
             ignore_weights = [ignore_weights]
 
         self.print_log('Load weights from {}.'.format(weights_path))
-        weights = torch.load(weights_path)
+        weights = torch.load(weights_path, map_location='cpu')
+        if isinstance(weights, dict) and 'state_dict' in weights:
+            weights = weights['state_dict']
+
         weights = OrderedDict([[k.split('module.')[-1],
                                 v.cpu()] for k, v in weights.items()])
 

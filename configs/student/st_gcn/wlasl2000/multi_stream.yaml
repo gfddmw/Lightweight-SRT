@@ -1,0 +1,72 @@
+# configs/student/multi_stream.yaml
+model: src.student_model.architecture.multi_stream_stgcn.MultiStreamSTGCN
+
+model_args:
+  num_class: 2000                   # 类别数
+  in_channels: 3                    # 输入通道 (x,y,z/conf)
+  edge_importance_weighting: true   # ✅ STGCN 必需参数
+
+  # 简化架构以对齐单流高性能基准 (暂时关闭 Shift/Bottleneck)
+  use_shift_gcn: false
+  use_bottleneck: false
+  dropout: 0.5
+
+  # ✅ 图参数 (必须包含 num_point=21 对应 MediaPipe 单手)
+  graph_args:
+    strategy: spatial
+    layout: 'openpose'               # 自定义布局名
+
+  # ✅ STGCN 网络参数
+  num_person: 1
+  graph_initialization: 'spatial'
+
+# 数据加载 (对齐单流高性能配置)
+feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder_args:
+  split_json: data/nslt_2000.json
+  subset: train
+  data_dir: processed/skeletons
+  bones_dir: processed/bones
+  motion_dir: processed/motion
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
+  target_len: 64
+  is_train: true
+  normalize_wrist: false            # ✅ 修复：关闭归一化，保留全局位置信息
+  teacher_logits_dir: processed/logits
+  in_channels: 3
+
+test_feeder_args:
+  split_json: data/nslt_2000.json
+  subset: test
+  data_dir: processed/skeletons
+  bones_dir: processed/bones
+  motion_dir: processed/motion
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
+  target_len: 64
+  is_train: false
+  normalize_wrist: false            # ✅ 修复：关闭归一化，与测试集对齐
+  in_channels: 3
+
+# 优化器 (对齐 Fast KD 比例，针对 64 BS 调整)
+base_lr: 0.1
+batch_size: 64
+optimizer: SGD
+weight_decay: 0.0001
+step: [40, 70, 100]
+num_epoch: 120
+nesterov: true
+
+# 蒸馏与多流 (参考 Fast KD 策略)
+kd_alpha: 0.7
+kd_temperature: 4.0
+multi_stream: true
+stream_names: joints,bones,motion
+use_aux_loss: true
+aux_loss_weight: 0.2
+
+# 运行参数
+num_worker: 8
+eval_interval: 5
+log_interval: 100
+save_interval: 10

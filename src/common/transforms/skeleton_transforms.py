@@ -20,8 +20,10 @@ class RandomRotateSkeleton:
         # 1. 中心化：绕腕部旋转 (MediaPipe 索引0为腕部)
         root_pos = None
         if self.center_on_root and skeleton.shape[1] > 0:
-            root_pos = skeleton[:, 0:1, :2].copy()  # (T, 1, 2)
-            skeleton = skeleton - root_pos          # 平移至原点
+            # 🔑 修复广播错误：确保 root_pos 的通道数与 skeleton 一致
+            root_pos = skeleton[:, 0:1, :].copy()    # (T, 1, C)
+            root_pos[..., 2:] = 0                    # 仅平移 x, y，保留 z/conf
+            skeleton = skeleton - root_pos           # 平移至原点
 
         # 2. 旋转矩阵乘法
         if not self.is_3d:
@@ -38,23 +40,28 @@ class RandomRotateSkeleton:
 
         # 3. 还原平移
         if self.center_on_root:
-            skeleton[..., :2] += root_pos
+            skeleton += root_pos
             
         return skeleton
 
 class TemporalCropOrPad:
     """时间轴剪裁或填充至固定长度 L"""
-    def __init__(self, target_len=64, padding_mode='zero'):
+    def __init__(self, target_len=64, padding_mode='zero', random=False):
         self.L = target_len
         self.padding_mode = padding_mode  # 'zero' (推荐) | 'repeat_first'
+        self.random = random
 
     def __call__(self, skeleton):
         T = skeleton.shape[0]
         if T == self.L:
             return skeleton
         if T > self.L:
-            # 随机起始帧裁剪
-            start = random.randint(0, T - self.L)
+            if self.random:
+                # 随机起始帧裁剪
+                start = random.randint(0, T - self.L)
+            else:
+                # 固定中心裁剪 (测试集/验证集推荐)
+                start = (T - self.L) // 2
             return skeleton[start:start + self.L]
         else:
             # 填充策略

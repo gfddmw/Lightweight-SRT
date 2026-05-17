@@ -124,9 +124,34 @@ def _transfer_block_weights(dst_block, src_block, in_idx, out_idx):
         _copy_bn(dst_block.tcn[3], src_block.tcn[3], idx=out_idx)
 
     # Residual branch
-    if isinstance(src_block.residual, nn.Sequential) and isinstance(dst_block.residual, nn.Sequential):
-        _copy_conv2d(dst_block.residual[0], src_block.residual[0], out_idx=out_idx, in_idx=in_idx)
-        _copy_bn(dst_block.residual[1], src_block.residual[1], idx=out_idx)
+    if isinstance(dst_block.residual, nn.Sequential):
+        if isinstance(src_block.residual, nn.Sequential):
+            _copy_conv2d(dst_block.residual[0], src_block.residual[0], out_idx=out_idx, in_idx=in_idx)
+            _copy_bn(dst_block.residual[1], src_block.residual[1], idx=out_idx)
+        else:
+            # Source was nn.Identity, but destination is Conv because of channel mismatch.
+            # We must initialize it as a "pruned identity" matrix to avoid random noise.
+            dst_block.residual[0].weight.data.zero_()
+            if dst_block.residual[0].bias is not None:
+                dst_block.residual[0].bias.data.zero_()
+            
+            # Map kept indices between layers
+            in_idx_list = in_idx.tolist()
+            out_idx_list = out_idx.tolist()
+            in_map = {orig_idx: new_idx for new_idx, orig_idx in enumerate(in_idx_list)}
+            
+            count = 0
+            for new_out_idx, orig_idx in enumerate(out_idx_list):
+                if orig_idx in in_map:
+                    new_in_idx = in_map[orig_idx]
+                    dst_block.residual[0].weight.data[new_out_idx, new_in_idx, 0, 0] = 1.0
+                    count += 1
+            
+            # Initialize BN as identity
+            dst_block.residual[1].weight.data.fill_(1.0)
+            dst_block.residual[1].bias.data.zero_()
+            dst_block.residual[1].running_mean.data.zero_()
+            dst_block.residual[1].running_var.data.fill_(1.0)
 
 
 def build_pruned_model(
@@ -160,6 +185,11 @@ def build_pruned_model(
 
     # Copy global layers
     _copy_bn(pruned_model.data_bn, base_model.data_bn)
+    
+    # Copy edge importance
+    if isinstance(base_model.edge_importance, nn.ParameterList):
+        for dst_ei, src_ei in zip(pruned_model.edge_importance, base_model.edge_importance):
+            dst_ei.data.copy_(src_ei.data)
 
     prev_idx = torch.arange(in_channels)
     for i, (dst_block, src_block) in enumerate(zip(pruned_model.st_gcn_networks, base_model.st_gcn_networks)):

@@ -47,10 +47,10 @@ class REC_Processor(Processor):
         parser = self.get_parser()
         if argv is None:
             argv = sys.argv[1:]
-        
+
         # 2. 先解析命令行参数
         self.arg = parser.parse_args(argv)
-        
+
         # 3. 加载配置文件（如果存在）
         if getattr(self.arg, 'config', None):
             cfg_path = Path(self.arg.config)
@@ -65,19 +65,19 @@ class REC_Processor(Processor):
                     if not hasattr(self.arg, k) or getattr(self.arg, k) == parser.get_default(k):
                         setattr(self.arg, k, v)
                 print(f"✅ 配置应用成功 | model={self.arg.model}")
-        
+
         # 4. 验证必要参数
         if not getattr(self.arg, 'model', None):
             print("❌ 错误: 'model' 未定义")
             sys.exit(1)
-            
+
         os.makedirs(self.arg.work_dir, exist_ok=True)
         print(f"📁 工作目录: {self.arg.work_dir}")
-        
+
         # 5. 初始化数据加载器和其他属性
         self.data_loader = {}
         self.dev = torch.device(f"cuda:{self.arg.device[0]}" if self.arg.device and torch.cuda.is_available() else "cpu")
-        
+
         # 🔧 修复IO初始化
         try:
             self.io = torchlight.io.IO(
@@ -87,26 +87,26 @@ class REC_Processor(Processor):
             )
         except TypeError:
             self.io = torchlight.io.IO(self.arg.work_dir)
-        
+
         self.model = None
         self.optimizer = None
         self.lr = self.arg.base_lr
         self.meta_info = {'epoch': 0, 'iter': 0, 'train_loss': [], 'test_loss': []}
         self.epoch_info = {}
         self.iter_info = {}
-        
+
         # 6. 加载模型、优化器和数据
         self.load_model()
         self.load_optimizer()
         self.load_data()  # 改为方法调用而不是外部函数
-        
+
     def load_model(self):
         model_args = getattr(self.arg, 'model_args', {}) or {}
         self.model = self.io.load_model(self.arg.model, **model_args)
         self.model.apply(weights_init)
         self.model.to(self.dev)
         self.loss = nn.CrossEntropyLoss()
-        
+
     def load_optimizer(self):
         if self.arg.optimizer == 'SGD':
             self.optimizer = optim.SGD(
@@ -121,70 +121,70 @@ class REC_Processor(Processor):
                 weight_decay=getattr(self.arg, 'weight_decay', 0.0001))
         else:
             raise ValueError(f'Unsupported optimizer: {self.arg.optimizer}')
-    
+
     def load_data(self):
         """加载数据集 - 使用绝对路径避免重复前缀问题"""
         from src.student_model.dataset.multi_stream_dataset import MultiStreamSkeletonDataset
-        
+
         # 获取当前工作目录的绝对路径
         cwd = Path.cwd()
-        
+
         # 定义可能的根目录
         possible_roots = [
             cwd,
-            cwd / 'Lightweight-SRT-main',
+            cwd / 'Lightweight-SRT',
             Path(__file__).parent.parent.parent,  # 向上3级到项目根目录
         ]
-        
+
         def resolve_path(rel_path):
             """解析文件路径，返回绝对路径"""
             rel_path = str(rel_path)
-            
+
             # 如果已经是绝对路径且存在，直接返回
             abs_path = Path(rel_path)
             if abs_path.is_absolute() and abs_path.exists():
                 return str(abs_path)
-            
+
             # 尝试在不同的根目录下查找
             for root in possible_roots:
                 test_path = root / rel_path
                 if test_path.exists():
                     print(f"✅ 找到文件: {test_path}")
                     return str(test_path.absolute())
-                
+
                 # 尝试去掉可能的重复前缀
-                if 'Lightweight-SRT-main' in rel_path:
-                    clean_path = rel_path.replace('Lightweight-SRT-main/', '').replace('Lightweight-SRT-main\\', '')
+                if 'Lightweight-SRT' in rel_path:
+                    clean_path = rel_path.replace('Lightweight-SRT/', '').replace('Lightweight-SRT\\', '')
                     test_path = root / clean_path
                     if test_path.exists():
                         print(f"✅ 找到文件（清理后）: {test_path}")
                         return str(test_path.absolute())
-            
+
             # 如果都没找到，返回相对于当前目录的路径（让后续报错）
             print(f"⚠️ 警告: 找不到文件 {rel_path}")
             return str(cwd / rel_path)
-        
+
         # 获取配置中的路径
         data_dir_rel = getattr(self.arg, 'data_dir', 'processed/skeletons')
         train_index_rel = getattr(self.arg, 'train_index_path', 'processed/train_indices.json')
         test_index_rel = getattr(self.arg, 'test_index_path', 'processed/test_indices.json')
-        
+
         # 解析为绝对路径
         data_dir = resolve_path(data_dir_rel)
         train_index_path = resolve_path(train_index_rel)
         test_index_path = resolve_path(test_index_rel)
-        
+
         # 获取拓扑结构
         topology = getattr(self.arg, 'topology', None)
         if not topology:
             # 默认MediaPipe手部拓扑（21个关键点）
             topology = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],
                        [0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
-        
+
         print(f"📁 数据目录: {data_dir}")
         print(f"📁 训练索引: {train_index_path}")
         print(f"📁 测试索引: {test_index_path}")
-        
+
         # 检查文件是否存在
         if not os.path.exists(train_index_path):
             raise FileNotFoundError(f"训练索引文件不存在: {train_index_path}")
@@ -192,7 +192,7 @@ class REC_Processor(Processor):
             raise FileNotFoundError(f"测试索引文件不存在: {test_index_path}")
         if not os.path.exists(data_dir):
             raise FileNotFoundError(f"数据目录不存在: {data_dir}")
-        
+
         # 训练集
         train_dataset = MultiStreamSkeletonDataset(
             index_path=train_index_path,
@@ -202,7 +202,7 @@ class REC_Processor(Processor):
             is_train=True,
             normalize_wrist=True
         )
-        
+
         self.data_loader['train'] = DataLoader(
             train_dataset,
             batch_size=self.arg.batch_size,
@@ -210,7 +210,7 @@ class REC_Processor(Processor):
             num_workers=getattr(self.arg, 'num_worker', 4),
             drop_last=True
         )
-        
+
         # 测试集
         test_dataset = MultiStreamSkeletonDataset(
             index_path=test_index_path,
@@ -220,14 +220,14 @@ class REC_Processor(Processor):
             is_train=False,
             normalize_wrist=True
         )
-        
+
         self.data_loader['test'] = DataLoader(
             test_dataset,
             batch_size=getattr(self.arg, 'test_batch_size', 256),
             shuffle=False,
             num_workers=2
         )
-        
+
         print(f"✅ 数据加载完成 | 训练集: {len(train_dataset)} 样本 | 测试集: {len(test_dataset)} 样本")
 
     def adjust_lr(self):
@@ -282,7 +282,7 @@ class REC_Processor(Processor):
         info_str = f"Epoch {self.meta_info['epoch']}, Iter {self.meta_info['iter']}: "
         info_str += f"loss={self.iter_info.get('loss', 0):.4f}, lr={self.lr:.6f}"
         self.io.print_log(info_str)
-        
+
     def show_epoch_info(self):
         """显示epoch信息"""
         info_str = f"Epoch {self.meta_info['epoch']} finished: "
@@ -301,16 +301,16 @@ class REC_Processor(Processor):
                 kwargs, label = self._parse_batch_for_multistream(batch)
             else:
                 kwargs, label = self._parse_batch_for_singlestream(batch)
-            
+
             # 前向传播
             output = self.model(**kwargs)
             loss, _ = self._compute_loss(output, label)
-            
+
             # 反向传播
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            
+
             # 记录信息
             self.iter_info.update({'loss': loss.item(), 'lr': f'{self.lr:.6f}'})
             loss_val.append(loss.item())
@@ -332,11 +332,11 @@ class REC_Processor(Processor):
                 kwargs, label = self._parse_batch_for_multistream(batch)
             else:
                 kwargs, label = self._parse_batch_for_singlestream(batch)
-            
+
             with torch.no_grad():
                 out = self.model(**kwargs)
                 out = out[0] if isinstance(out, tuple) else out
-            
+
             res_frag.append(out.cpu().numpy())
             if evaluation:
                 loss_val.append(self.loss(out, label).item())
@@ -349,17 +349,17 @@ class REC_Processor(Processor):
             self.show_epoch_info()
             for k in getattr(self.arg, 'show_topk', [1, 5]):
                 self.show_topk(k)
-    
+
     def start(self):
         """主训练流程"""
         for epoch in range(self.arg.start_epoch, self.arg.num_epoch):
             self.meta_info['epoch'] = epoch
             self.train()
-            
+
             # 定期评估
             if (epoch + 1) % self.arg.eval_interval == 0:
                 self.test(evaluation=True)
-            
+
             # 定期保存模型
             if (epoch + 1) % self.arg.save_interval == 0:
                 save_path = os.path.join(self.arg.work_dir, f'epoch_{epoch+1}_model.pt')
@@ -371,7 +371,7 @@ class REC_Processor(Processor):
     def get_parser(add_help=False):
         """完整的参数解析器，包含所有参数"""
         parser = argparse.ArgumentParser(add_help=add_help, description='ST-GCN Training')
-        
+
         # 基础参数
         parser.add_argument('-w', '--work_dir', default='./workdirs/tmp', help='工作目录')
         parser.add_argument('-c', '--config', default=None, help='配置文件路径')
@@ -386,7 +386,7 @@ class REC_Processor(Processor):
         parser.add_argument('--eval_interval', type=int, default=5, help='评估间隔')
         parser.add_argument('--save_log', type=str2bool, default=True, help='保存日志')
         parser.add_argument('--print_log', type=str2bool, default=True, help='打印日志')
-        
+
         # 数据参数
         parser.add_argument('--feeder', default='src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset', help='数据加载器')
         parser.add_argument('--num_worker', type=int, default=4, help='数据加载线程数')
@@ -395,34 +395,34 @@ class REC_Processor(Processor):
         parser.add_argument('--batch_size', type=int, default=16, help='批次大小')
         parser.add_argument('--test_batch_size', type=int, default=256, help='测试批次大小')
         parser.add_argument('--debug', action='store_true', help='调试模式')
-        
+
         # 模型参数
         parser.add_argument('--model', default=None, help='模型类路径')
         parser.add_argument('--model_args', action=DictAction, default={}, help='模型参数')
         parser.add_argument('--weights', default=None, help='预训练权重')
         parser.add_argument('--ignore_weights', type=str, nargs='+', default=[], help='忽略的权重')
-        
+
         # 优化器参数
         parser.add_argument('--base_lr', type=float, default=0.01, help='基础学习率')
         parser.add_argument('--optimizer', default='SGD', choices=['SGD', 'Adam'], help='优化器')
         parser.add_argument('--weight_decay', type=float, default=0.0001, help='权重衰减')
         parser.add_argument('--step', type=int, nargs='+', default=[], help='学习率下降步数')
         parser.add_argument('--nesterov', type=str2bool, default=True, help='Nesterov动量')
-        
+
         # 数据路径参数
         parser.add_argument('--data_dir', type=str, default='processed/skeletons', help='数据目录')
         parser.add_argument('--train_index_path', type=str, default='processed/train_indices.json', help='训练索引文件')
         parser.add_argument('--test_index_path', type=str, default='processed/test_indices.json', help='测试索引文件')
         parser.add_argument('--topology', type=list, default=None, help='骨架拓扑结构')
         parser.add_argument('--target_len', type=int, default=64, help='目标序列长度')
-        
+
         # 多流专用参数
         parser.add_argument('--multi_stream', type=str2bool, default=False, help='是否使用多流训练')
         parser.add_argument('--stream_names', type=str, default='joints,bones,motion', help='流名称，用逗号分隔')
         parser.add_argument('--use_aux_loss', type=str2bool, default=False, help='是否使用辅助损失')
         parser.add_argument('--aux_loss_weight', type=float, default=0.1, help='辅助损失权重')
         parser.add_argument('--show_topk', type=int, nargs='+', default=[1, 5], help='显示TopK准确率')
-        
+
         return parser
 
 if __name__ == '__main__':

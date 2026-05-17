@@ -1,4 +1,4 @@
-#动态计算 Bones 与 Motion
+# 深度优化版：支持训练集读取预计算特征 + mmap 快速 IO
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -6,163 +6,164 @@ import json
 from pathlib import Path
 import os
 import sys
+
 def _find_project_root():
-    """自动查找项目根目录（包含 processed/ 的目录）"""
+    """自动查找项目根目录"""
     current = Path(__file__).resolve()
     for parent in [current] + list(current.parents):
-        if (parent / "processed").exists() or (parent / "Lightweight-SRT-main" / "processed").exists():
-            # 如果当前目录就有 processed/，就是根目录
-            if (parent / "processed").exists():
-                return parent
-            # 否则可能是嵌套的 Lightweight-SRT-main
-            if (parent / "Lightweight-SRT-main" / "processed").exists():
-                return parent / "Lightweight-SRT-main"
-    # 兜底：返回 3 级父目录
+        if (parent / "processed").exists():
+            return parent
     return Path(__file__).resolve().parents[3]
-PROJECT_ROOT = _find_project_root()
 
+PROJECT_ROOT = _find_project_root()
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-from src.common.transforms.skeleton_transforms import SkeletonCompose, TemporalCropOrPad
+
+from src.common.transforms.skeleton_transforms import TemporalCropOrPad
 
 class MultiStreamSkeletonDataset(Dataset):
-    """
-    多流骨架数据集 (Joints / Bones / Motion)
-    适配 MediaPipe 单手 21 点 .npy 格式 & ST-GCN (N, C, T, V, M) 输入规范
-    """
-    def __init__(self, index_path, data_dir, topology, label_map_path=None, 
-                 target_len=64, is_train=True, normalize_wrist=True, **kwargs):
-        
-        if not os.path.isabs(index_path):
-            index_path = PROJECT_ROOT / index_path
-        else:
-            index_path = Path(index_path)
-            
-        if not os.path.isabs(data_dir):
-            data_dir = PROJECT_ROOT / data_dir
-        else:
-            data_dir = Path(data_dir)
-            
-        if label_map_path and not os.path.isabs(label_map_path):
-            label_map_path = PROJECT_ROOT / label_map_path
+    def __init__(self, index_path=None, split_json=None, subset='train', data_dir=None, topology=None, label_map_path=None,
+                 target_len=64, is_train=True, normalize_wrist=True, in_channels=2,
+                 teacher_logits_dir=None, teacher_feature_dir=None, bones_dir=None, motion_dir=None, **kwargs):
 
-        # 1. 加载清洗后的索引
-        with open(index_path, 'r') as f:
-            self.sample_ids = json.load(f)
-        self.data_dir = data_dir
-        self.topology = topology  # list of tuples: [(src_idx, tgt_idx), ...]
+        if split_json:
+            if not os.path.isabs(split_json):
+                split_json = PROJECT_ROOT / split_json
+            with open(split_json, 'r', encoding='utf-8') as f:
+                self.split_json_data = json.load(f)
+            self.sample_ids = [vid for vid, meta in self.split_json_data.items() if meta.get('subset') == subset]
+        elif index_path:
+            index_path = PROJECT_ROOT / index_path if not os.path.isabs(index_path) else Path(index_path)
+            with open(index_path, 'r') as f:
+                self.sample_ids = json.load(f)
+        else:
+            raise ValueError("Must provide 'split_json' or 'index_path'")
+
+        self.data_dir = PROJECT_ROOT / data_dir if not os.path.isabs(data_dir) else Path(data_dir)
+        self.topology = topology
         self.target_len = target_len
         self.normalize_wrist = normalize_wrist
+        self.in_channels = in_channels
         
-        # 2. 加载标签映射 (WLASL 强烈建议使用独立 JSON 映射表)
-        self.label_map = None
-        if label_map_path:
-            with open(label_map_path, 'r') as f:
-                self.label_map = json.load(f)
-        else:
-            print("⚠️ 未提供 label_map_path，将尝试从文件名解析标签 (不推荐用于生产)")
+        def _resolve_dir(d):
+            if not d: return None
+            return PROJECT_ROOT / d if not os.path.isabs(d) else Path(d)
 
-        # 3. 构建变换管道
-        base_transforms = [TemporalCropOrPad(target_len=target_len, padding_mode='zero')]
+        self.teacher_logits_dir = _resolve_dir(teacher_logits_dir)
+        self.teacher_feature_dir = _resolve_dir(teacher_feature_dir)
+        self.bones_dir = _resolve_dir(bones_dir)
+        self.motion_dir = _resolve_dir(motion_dir)
+
+        self.is_train = is_train
         if is_train:
-            # 训练集：增强 + 时间对齐
             from src.common.transforms.skeleton_transforms import RandomRotateSkeleton
-            base_transforms.insert(0, RandomRotateSkeleton(max_angle=15, center_on_root=True))
-            
-        self.transforms = SkeletonCompose(base_transforms)
+            self.spatial_transform = RandomRotateSkeleton(max_angle=15, center_on_root=True)
+        else:
+            self.spatial_transform = None
+        
+        self.temporal_transform = TemporalCropOrPad(target_len=target_len, padding_mode='zero', random=is_train)
 
     def __len__(self):
         return len(self.sample_ids)
 
-    def _load_sample(self, vid_id):
-        """加载 .npy 骨架文件，确保形状为 (T, 21, 3)"""
-        npy_path = self.data_dir / f"{vid_id}.npy"
-        if not npy_path.exists():
-            raise FileNotFoundError(f"骨架文件缺失: {npy_path}")
-            
-        data = np.load(npy_path, allow_pickle=True).astype(np.float32)
-        
-        # 兼容处理：确保为 (T, K, 3)
-        if data.ndim == 2:  # (T, K*3) 扁平格式
-            if data.shape[1] % 3 == 0:
-                data = data.reshape(data.shape[0], -1, 3)
-        elif data.ndim == 3 and data.shape[-1] == 2:  # 缺置信度列
-            data = np.dstack([data, np.zeros(data.shape[:-1], dtype=np.float32)])
-            
-        return data
+    def _load_npy(self, path):
+        """使用 mmap_mode 提升读取速度"""
+        try:
+            return np.load(path, allow_pickle=True, mmap_mode='r').astype(np.float32)
+        except:
+            return None
 
     def _get_label(self, vid_id):
-        """安全获取标签"""
-        # 🚀 兜底机制：如果外部传参失败，直接在这里强行加载绝对路径
-        if self.label_map is None:
-            map_path = PROJECT_ROOT / "processed" / "label_map.json"
-            if map_path.exists():
-                with open(map_path, 'r') as f:
-                    self.label_map = json.load(f)
-
-        # 正常逻辑
-        if self.label_map:
-            return self.label_map.get(str(vid_id), self.label_map.get(vid_id, -1))
-        
-        # 降级解析：假设文件名包含数字标签
-        try:
-            parts = vid_id.replace('-', '_').split('_')
-            for p in parts:
-                if p.isdigit():
-                    return int(p)
-            return -1
-        except:
-            return -1
+        if hasattr(self, 'split_json_data') and str(vid_id) in self.split_json_data:
+            meta = self.split_json_data[str(vid_id)]
+            if 'action' in meta and len(meta['action']) > 0:
+                return int(meta['action'][0])
+        return 0
 
     def _compute_bones(self, joints):
-        """基于拓扑计算骨骼向量 (T, V, C)"""
         bones = np.zeros_like(joints)
         max_v = joints.shape[1]
-        for src, tgt in self.topology:
-            if src < max_v and tgt < max_v:
-                bones[:, tgt] = joints[:, tgt] - joints[:, src]
+        src_indices = [e[0] for e in self.topology if e[0] < max_v and e[1] < max_v]
+        tgt_indices = [e[1] for e in self.topology if e[0] < max_v and e[1] < max_v]
+        if src_indices:
+            bones[:, tgt_indices] = joints[:, tgt_indices] - joints[:, src_indices]
         return bones
 
     def _compute_motion(self, joints):
-        """计算时间差分运动特征 (T, V, C)"""
         motion = np.zeros_like(joints)
-        T = joints.shape[0]
-        if T > 1:
+        if joints.shape[0] > 1:
             motion[:-1] = joints[1:] - joints[:-1]
-            # 最后一帧运动置零 (ST-GCN 标准实践，避免引入虚假边界信号)
-            motion[-1] = 0.0
         return motion
 
     def __getitem__(self, idx):
         vid_id = self.sample_ids[idx]
-        raw_data = self._load_sample(vid_id)
         
-        # 仅取 x, y 坐标 (MediaPipe 的 z 为相对深度，手语识别中 2D 投影更稳定)
-        joints = raw_data[:, :, :2] 
+        # 1. 加载 Joints
+        joints_path = self.data_dir / f"{vid_id}.npy"
+        joints = self._load_npy(joints_path)
+        if joints is None: return self.__getitem__(0) # 容错
         
-        # 可选：以腕部(索引0)为中心归一化，消除位置偏差
+        if joints.ndim == 2:
+            joints = joints.reshape(joints.shape[0], -1, 3)
+        joints = joints[:, :, :self.in_channels]
+
         if self.normalize_wrist:
-            wrist = joints[:, 0:1, :]  # (T, 1, 2)
-            joints = joints - wrist
-            
-        # 1. 数据增强 & 时间对齐
-        joints = self.transforms(joints)
+            joints[:, :, :2] -= joints[:, 0:1, :2]
+
+        if self.spatial_transform:
+            joints = self.spatial_transform(joints)
+
+        # 2. 优先加载预计算的 Bones/Motion (不再区分训练测试集)
+        bones = None
+        motion = None
         
-        # 2. 计算多流特征 (在增强/对齐后计算，保证物理一致性)
-        bones = self._compute_bones(joints)
-        motion = self._compute_motion(joints)
-        
-        # 3. 转换为 ST-GCN 标准张量格式: (C, T, V, M) -> M=1
+        if self.bones_dir:
+            bones = self._load_npy(self.bones_dir / f"{vid_id}.npy")
+        if self.motion_dir:
+            motion = self._load_npy(self.motion_dir / f"{vid_id}.npy")
+
+        if bones is None or bones.shape[-1] != self.in_channels:
+            bones = self._compute_bones(joints)
+        if motion is None or motion.shape[-1] != self.in_channels:
+            motion = self._compute_motion(joints)
+
+        # 3. 时间对齐与转换
+        joints = self.temporal_transform(joints)
+        bones = self.temporal_transform(bones)
+        motion = self.temporal_transform(motion)
+
         def to_stgcn_tensor(x):
-            # x: (T, V, C) -> (C, T, V) -> (C, T, V, 1)
             return torch.from_numpy(x.transpose(2, 0, 1)).unsqueeze(-1).contiguous()
 
-        label = self._get_label(vid_id)
-        if label == -1:
-            # 🚀 容错：如果实在找不到标签，分配默认类别 0，避免中断训练
-            label = 0  
-        return {
+        data_dict = {
             "joints": to_stgcn_tensor(joints),
             "bones": to_stgcn_tensor(bones),
             "motion": to_stgcn_tensor(motion)
-        }, torch.tensor(label, dtype=torch.long)
+        }
+        
+        label_t = torch.tensor(self._get_label(vid_id), dtype=torch.long)
+
+        # 4. 加载蒸馏辅助数据 (mmap)
+        teacher_logits = None
+        if self.teacher_logits_dir:
+            lp = self.teacher_logits_dir / f"{vid_id}.npy"
+            if lp.exists():
+                teacher_logits = torch.from_numpy(np.load(lp, mmap_mode='r').astype(np.float32))
+
+        teacher_features = None
+        if self.teacher_feature_dir:
+            fp = self.teacher_feature_dir / f"{vid_id}.npy"
+            if fp.exists():
+                feat = np.load(fp, mmap_mode='r').astype(np.float32)
+                if feat.size % 1024 == 0 and feat.size > 0:
+                    feat = feat.reshape(-1, 1024).mean(axis=0, keepdims=True)
+                elif feat.ndim == 1:
+                    feat = feat[None, :]
+                teacher_features = torch.from_numpy(feat.copy())
+
+        if teacher_logits is not None and teacher_features is not None:
+            return data_dict, teacher_logits, teacher_features, label_t, vid_id
+        elif teacher_logits is not None:
+            return data_dict, teacher_logits, label_t, vid_id
+        
+        return data_dict, label_t
