@@ -1,0 +1,81 @@
+# configs/student/st_gcn/wlasl2000/train_multistream_hint.yaml
+model: src.student_model.architecture.multi_stream_stgcn.MultiStreamSTGCN
+
+model_args:
+  num_class: 2000
+  in_channels: 3
+  edge_importance_weighting: true
+  use_shift_gcn: false              # 🚀 必须设为 false，以兼容 37.1% 的权重
+  use_bottleneck: false
+  dropout: 0.5
+
+  graph_args:
+    strategy: spatial
+    layout: 'openpose'
+
+  num_person: 1
+  graph_initialization: 'spatial'
+
+# 🚀 核心：加载目前全场最强的 37.13% 模型作为起跑点
+weights: work_dir/recognition/wlasl2000/multistream_aligned_v2/epoch70_model.pt
+
+# 数据加载
+feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder_args:
+  split_json: data/nslt_2000.json
+  subset: train
+  data_dir: processed/skeletons
+  bones_dir: processed/bones
+  motion_dir: processed/motion
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[7,8],[0,9],[9,10],[11,12],[13,14],[15,16],[17,18],[19,20]] # 保持拓扑一致
+  target_len: 64
+  is_train: true
+  normalize_wrist: false
+  teacher_logits_dir: processed/logits
+  teacher_feature_dir: processed/teacher_features
+  in_channels: 3
+
+test_feeder_args:
+  split_json: data/nslt_2000.json
+  subset: test
+  data_dir: processed/skeletons
+  bones_dir: processed/bones
+  motion_dir: processed/motion
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[7,8],[0,9],[9,10],[11,12],[13,14],[15,16],[17,18],[19,20]]
+  target_len: 64
+  is_train: false
+  normalize_wrist: false
+  in_channels: 3
+
+# 精炼训练策略
+base_lr: 0.001                     # 🚀 使用极低学习率，像“绣花”一样精修
+batch_size: 64
+optimizer: SGD
+weight_decay: 0.0005                # 🚀 增加权重衰减，防止破坏已有的 37% 精度
+step: [20, 40]
+num_epoch: 50                       # 只跑 50 轮
+nesterov: true
+warmup_epoch: 0
+
+# 蒸馏配置：作为微弱的辅助
+kd_alpha: 0.05                      # 🚀 极低权重，只参考老师 5% 的意见
+kd_temperature: 5.0                 # 高温度，极度平滑，只学习类间关联
+dynamic_alpha: false
+
+# HINT 特征蒸馏参数：作为一种特征正则项
+hint_weight: 0.02                    # 🚀 微弱的特征对齐，保持“血统”不跑偏
+sp_weight: 5.0
+student_feature_dim: 768
+teacher_feature_dim: 1024
+hint_layer_weights: [1.0]
+
+# 分支辅助损失
+use_aux_loss: true
+aux_loss_weight: 0.1
+
+# 运行参数
+num_worker: 8
+eval_interval: 2                    # 🚀 加快评估频率，因为是精调
+log_interval: 50
+save_interval: 5

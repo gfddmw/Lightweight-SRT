@@ -1,0 +1,68 @@
+work_dir: ./work_dir/recognition/wlasl2000/ST_GCN_MULTISTREAM_KD_HINT_OPTUNA
+
+# Feeder settings
+feeder: src.student_model.dataset.multi_stream_dataset.MultiStreamSkeletonDataset
+train_feeder_args:
+  split_json: ./data/nslt_2000.json
+  data_dir: ./processed/skeletons  # 修改参数名：skeleton_dir -> data_dir
+  teacher_logits_dir: ./processed/logits # 修改参数名：logits_dir -> teacher_logits_dir
+  teacher_feature_dir: ./processed/teacher_features
+  subset: train
+  target_len: 64 # 修改参数名：seq_len -> target_len
+  in_channels: 3
+  is_train: True
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]] # OpenPose 手部拓扑
+test_feeder_args:
+  split_json: ./data/nslt_2000.json
+  data_dir: ./processed/skeletons
+  teacher_logits_dir: ./processed/logits
+  teacher_feature_dir: ./processed/teacher_features
+  subset: test
+  target_len: 64
+  in_channels: 3
+  is_train: False
+  topology: [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20]]
+
+# Model settings
+model: src.student_model.architecture.multi_stream_stgcn.MultiStreamSTGCN
+model_args:
+  in_channels: 3
+  num_class: 2000
+  edge_importance_weighting: True
+  graph_args:
+    layout: "openpose"
+    strategy: "spatial"
+  # Base ST-GCN branch args
+  dropout: 0.5
+
+# Distillation Params (Base values to be overridden by Optuna)
+kd_alpha: 0.6
+kd_temperature: 4.0
+hint_weight: 0.1
+sp_weight: 10.0
+dynamic_alpha: True
+warmup_epoch: 2
+
+# Feature Dims
+student_feature_dim: 768  # 256 * 3 branches concatenated
+teacher_feature_dim: 1024
+
+# Multi-Stream Aux Loss
+use_aux_loss: True
+aux_loss_weight: 0.1
+
+# Optimizer settings
+optimizer: SGD
+weight_decay: 0.0001
+base_lr: 0.1
+step: [ 30, 50 ]
+nesterov: True
+
+# Training control
+device: [0]
+batch_size: 64           # 进一步缩小 batch_size 确保 3 流模型不 OOM
+test_batch_size: 64
+num_epoch: 60
+num_worker: 8
+eval_interval: 5
+show_topk: [1, 5]
