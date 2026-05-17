@@ -9,6 +9,7 @@
     <string name="profile">Profile</string>
     <string name="translator">Translator</string>
     <string name="settings">Settings</string>
+    <string name="menu">Menu</string>
     <string name="history">History</string>
     <string name="voice_mic">Voice Interaction</string>
     <string name="to">to</string>
@@ -17,11 +18,19 @@
     <string name="type_back">Type Back</string>
     <string name="type_something">Type something to communicate...</string>
     <string name="send">Send</string>
+    <string name="recognition_ready">Hand detected</string>
+    <string name="recognition_waiting">Waiting for hand</string>
+    <string name="camera_hint">Live camera recognition</string>
+    <string name="reply_placeholder">Type a quick reply...</string>
+    <string name="send_reply">Send reply</string>
+    <string name="capture_photo">Capture photo</string>
+    <string name="open_settings">Open settings</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
     <string name="back">Back</string>
     <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
     
     <string name="header_general">General</string>
     <string name="app_language">App Language</string>
@@ -78,10 +87,17 @@
     <string name="header_about_help">About &amp; Help</string>
     <string name="user_guide">User Guide</string>
     <string name="reset_settings">Reset All Settings</string>
+    <string name="user_guide_title">How to use Sign Translate</string>
+    <string name="user_guide_body">Keep your hands inside the camera frame, hold the sign steadily until it is detected, then read or hear the translated result. Use the bottom input field for quick typed replies.</string>
+    <string name="reset_settings_title">Reset settings?</string>
+    <string name="reset_settings_desc">This restores language, tracking, text, display, flash, and vibration preferences to their defaults.</string>
+    <string name="reset">Reset</string>
     
     <string name="pro_tracking_title">Pro Tracking</string>
     <string name="pro_tracking_desc">Unlock dual-hand tracking and multi-dialect support.</string>
     <string name="upgrade_now">Upgrade Now</string>
+    <string name="upgrade_title">Pro Tracking</string>
+    <string name="upgrade_desc">The Pro upgrade entry is now connected. Payment is not configured in this build, so this screen previews the features instead of starting checkout.</string>
 
     <!-- Profile Screen -->
     <string name="elite_interpreter">Elite Interpreter</string>
@@ -128,6 +144,18 @@
     <string name="start_journey">Start Your Interpretation Journey</string>
     <string name="username">Username</string>
     <string name="already_have_account">Already have an account?</string>
+    <string name="verification_code">Verification Code</string>
+    <string name="get_code">Get Code</string>
+    <string name="use_verification_code">Use verification code</string>
+    <string name="use_password">Use password</string>
+    <string name="enter_email_first">Please enter email first</string>
+    <string name="enter_password">Please enter password</string>
+    <string name="enter_code">Please enter verification code</string>
+    <string name="send_code_first">Please get verification code first</string>
+    <string name="fill_required_fields">Please fill all required fields</string>
+    <string name="create_secure_account">Create your secure account</string>
+    <string name="verification_sent">Verification code sent</string>
+    <string name="register_success">Account created</string>
     <string name="bio">Bio</string>
     <string name="save_changes">Save Changes</string>
     <string name="profile_updated">Profile updated!</string>

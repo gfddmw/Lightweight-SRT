@@ -48,6 +48,53 @@ fun SettingsScreen(
     var displayDuration by remember { mutableStateOf(initialSettings.displayDuration) }
     var flashOnTranslation by remember { mutableStateOf(initialSettings.flashOnTranslation) }
     var vibration by remember { mutableStateOf(initialSettings.vibration) }
+    var showUserGuideDialog by remember { mutableStateOf(false) }
+    var showResetDialog by remember { mutableStateOf(false) }
+    var showUpgradeDialog by remember { mutableStateOf(false) }
+
+    fun currentSettings(): UserSettings {
+        return UserSettings(
+            appLanguage = appLanguage,
+            signLanguageStandard = signLanguage,
+            outputLanguage = outputLanguage,
+            showSkeleton = showSkeleton,
+            confidenceThreshold = confidenceThreshold,
+            autoFocus = autoFocus,
+            textSize = textSize,
+            displayDuration = displayDuration,
+            flashOnTranslation = flashOnTranslation,
+            vibration = vibration,
+
+            userName = initialSettings.userName,
+            userRole = initialSettings.userRole,
+            totalTranslations = initialSettings.totalTranslations,
+            accuracy = initialSettings.accuracy,
+            streakDays = initialSettings.streakDays,
+            expertLevel = initialSettings.expertLevel,
+            helpedCount = initialSettings.helpedCount,
+            fastestDelay = initialSettings.fastestDelay,
+
+            isLoggedIn = initialSettings.isLoggedIn,
+            authToken = initialSettings.authToken,
+            accessToken = initialSettings.accessToken,
+            refreshToken = initialSettings.refreshToken
+        )
+    }
+
+    fun resetLocalSettings() {
+        appLanguage = "en"
+        signLanguage = "ASL"
+        outputLanguage = "en"
+        showSkeleton = true
+        confidenceThreshold = 0.5f
+        autoFocus = true
+        textSize = "AA"
+        displayDuration = "5s"
+        flashOnTranslation = false
+        vibration = true
+        onReset()
+        showResetDialog = false
+    }
 
     Scaffold(
         topBar = {
@@ -70,38 +117,9 @@ fun SettingsScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            onSave(
-                                UserSettings(
-                                    appLanguage = appLanguage,
-                                    signLanguageStandard = signLanguage,
-                                    outputLanguage = outputLanguage,
-                                    showSkeleton = showSkeleton,
-                                    confidenceThreshold = confidenceThreshold,
-                                    autoFocus = autoFocus,
-                                    textSize = textSize,
-                                    displayDuration = displayDuration,
-                                    flashOnTranslation = flashOnTranslation,
-                                    vibration = vibration,
-                                    
-                                    // Preserve profile stats when saving settings
-                                    userName = initialSettings.userName,
-                                    userRole = initialSettings.userRole,
-                                    totalTranslations = initialSettings.totalTranslations,
-                                    accuracy = initialSettings.accuracy,
-                                    streakDays = initialSettings.streakDays,
-                                    expertLevel = initialSettings.expertLevel,
-                                    helpedCount = initialSettings.helpedCount,
-                                    fastestDelay = initialSettings.fastestDelay,
-                                    
-                                    // Preserve auth state when saving settings
-                                    isLoggedIn = initialSettings.isLoggedIn,
-                                    authToken = initialSettings.authToken,
-                                    accessToken = initialSettings.accessToken,
-                                    refreshToken = initialSettings.refreshToken
-                                )
-                            )
+                            onSave(currentSettings())
                         }) {
-                            Icon(Icons.Default.Save, contentDescription = "Save", tint = PrimaryColor)
+                            Icon(Icons.Default.Save, contentDescription = stringResource(R.string.save), tint = PrimaryColor)
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -113,7 +131,7 @@ fun SettingsScreen(
             // Reusing the same SenseBottomNavBar but for the settings context (simplified)
             SenseBottomNavBar(
                 modifier = Modifier,
-                selectedTab = 0,
+                selectedTab = -1,
                 onNavigateToProfile = onNavigateToProfile,
                 onNavigateToTranslator = onBack
             )
@@ -163,6 +181,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Visibility,
                         title = stringResource(R.string.show_skeleton_overlay),
                         subtitle = stringResource(R.string.show_skeleton_subtitle),
+                        onClick = { showSkeleton = !showSkeleton },
                         trailing = {
                             Switch(
                                 checked = showSkeleton,
@@ -176,6 +195,7 @@ fun SettingsScreen(
                     SettingItem(
                         icon = Icons.Default.CenterFocusStrong,
                         title = stringResource(R.string.auto_focus),
+                        onClick = { autoFocus = !autoFocus },
                         trailing = {
                             Switch(
                                 checked = autoFocus, 
@@ -195,6 +215,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Language,
                         title = stringResource(R.string.app_language),
                         subtitle = if (appLanguage == "en") stringResource(R.string.lang_english) else stringResource(R.string.lang_chinese),
+                        onClick = { appLanguage = if (appLanguage == "en") "zh" else "en" },
                         trailing = {
                             IconButton(onClick = {
                                 appLanguage = if (appLanguage == "en") "zh" else "en"
@@ -209,6 +230,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Translate,
                         title = stringResource(R.string.sign_language_standard),
                         subtitle = if (signLanguage == "ASL") stringResource(R.string.std_asl) else stringResource(R.string.std_csl),
+                        onClick = { signLanguage = if (signLanguage == "ASL") "CSL" else "ASL" },
                         trailing = {
                             IconButton(onClick = {
                                 signLanguage = if (signLanguage == "ASL") "CSL" else "ASL"
@@ -222,6 +244,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Translate,
                         title = stringResource(R.string.output_language),
                         subtitle = if (outputLanguage == "en") stringResource(R.string.lang_english) else stringResource(R.string.lang_chinese),
+                        onClick = { outputLanguage = if (outputLanguage == "en") "zh" else "en" },
                         trailing = {
                             IconButton(onClick = {
                                 outputLanguage = if (outputLanguage == "en") "zh" else "en"
@@ -261,6 +284,13 @@ fun SettingsScreen(
                         icon = Icons.Default.Timer,
                         title = stringResource(R.string.display_duration),
                         subtitle = stringResource(R.string.display_duration_subtitle),
+                        onClick = {
+                            displayDuration = when(displayDuration) {
+                                "3s" -> "5s"
+                                "5s" -> "8s"
+                                else -> "3s"
+                            }
+                        },
                         trailing = {
                             IconButton(onClick = {
                                 displayDuration = when(displayDuration) {
@@ -282,6 +312,7 @@ fun SettingsScreen(
                     SettingItem(
                         icon = Icons.Default.FlashlightOn,
                         title = stringResource(R.string.flash_on_translation),
+                        onClick = { flashOnTranslation = !flashOnTranslation },
                         trailing = {
                             Switch(
                                 checked = flashOnTranslation, 
@@ -293,6 +324,7 @@ fun SettingsScreen(
                     SettingItem(
                         icon = Icons.Default.Vibration,
                         title = stringResource(R.string.vibration),
+                        onClick = { vibration = !vibration },
                         trailing = {
                             Switch(
                                 checked = vibration, 
@@ -310,6 +342,7 @@ fun SettingsScreen(
                     SettingItem(
                         icon = Icons.Default.HelpOutline,
                         title = stringResource(R.string.user_guide),
+                        onClick = { showUserGuideDialog = true },
                         trailing = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = OnSurfaceVariant) }
                     )
                     SettingItem(
@@ -328,7 +361,7 @@ fun SettingsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onReset() }
+                            .clickable { showResetDialog = true }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -344,19 +377,10 @@ fun SettingsScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(24.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(SurfaceContainerHigh)
                         .padding(24.dp)
                 ) {
-                    // Glow effect
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .offset(x = 16.dp, y = 16.dp)
-                            .size(100.dp)
-                            .background(PrimaryColor.copy(alpha = 0.2f), CircleShape)
-                    )
-
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             stringResource(R.string.pro_tracking_title), 
@@ -373,7 +397,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
-                            onClick = { },
+                            onClick = { showUpgradeDialog = true },
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -394,6 +418,59 @@ fun SettingsScreen(
 
             item { Spacer(modifier = Modifier.height(32.dp)) }
         }
+    }
+
+    if (showUserGuideDialog) {
+        AlertDialog(
+            onDismissRequest = { showUserGuideDialog = false },
+            title = { Text(stringResource(R.string.user_guide_title)) },
+            text = { Text(stringResource(R.string.user_guide_body), color = OnSurfaceVariant) },
+            confirmButton = {
+                TextButton(onClick = { showUserGuideDialog = false }) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            containerColor = SurfaceContainer,
+            titleContentColor = Color.White,
+            textContentColor = OnSurfaceVariant
+        )
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text(stringResource(R.string.reset_settings_title)) },
+            text = { Text(stringResource(R.string.reset_settings_desc), color = OnSurfaceVariant) },
+            confirmButton = {
+                TextButton(onClick = { resetLocalSettings() }) {
+                    Text(stringResource(R.string.reset), color = DangerColor)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+            containerColor = SurfaceContainer,
+            titleContentColor = Color.White,
+            textContentColor = OnSurfaceVariant
+        )
+    }
+
+    if (showUpgradeDialog) {
+        AlertDialog(
+            onDismissRequest = { showUpgradeDialog = false },
+            title = { Text(stringResource(R.string.upgrade_title)) },
+            text = { Text(stringResource(R.string.upgrade_desc), color = OnSurfaceVariant) },
+            confirmButton = {
+                TextButton(onClick = { showUpgradeDialog = false }) {
+                    Text(stringResource(R.string.ok))
+                }
+            },
+            containerColor = SurfaceContainer,
+            titleContentColor = Color.White,
+            textContentColor = OnSurfaceVariant
+        )
     }
 }
 
@@ -424,12 +501,13 @@ fun SettingItem(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
     trailing: @Composable () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
+            .clickable(enabled = onClick != null) { onClick?.invoke() }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

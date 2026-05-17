@@ -99,7 +99,7 @@ fun ProfileScreen(
                     onMenuClick = { scope.launch { drawerState.open() } }
                 )
             },
-            containerColor = Color(0xFF0E0E0E),
+            containerColor = SurfaceDim,
             bottomBar = {
                 SenseBottomNavBar(
                     selectedTab = 0,
@@ -342,7 +342,7 @@ fun ProfileDrawerContent(
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
-                Text("LUMINARY", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp), color = PrimaryColor)
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Black), color = PrimaryColor)
                 Text(userName, style = MaterialTheme.typography.bodyMedium, color = Color.White)
             }
         }
@@ -403,16 +403,17 @@ fun ProfileTopBar(avatarUrl: String, onMenuClick: () -> Unit) { // 新增参数
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            Icons.Default.MenuOpen,
-            contentDescription = "Menu",
-            tint = PrimaryColor,
-            modifier = Modifier.size(28.dp).clickable { onMenuClick() }
-        )
+        IconButton(onClick = onMenuClick) {
+            Icon(
+                Icons.Default.MenuOpen,
+                contentDescription = stringResource(R.string.menu),
+                tint = PrimaryColor
+            )
+        }
 
         Text(
-            text = "LUMINARY",
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, letterSpacing = 4.sp, fontSize = 20.sp),
+            text = stringResource(R.string.app_name),
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black, fontSize = 20.sp),
             color = Color.White
         )
 
@@ -478,7 +479,7 @@ fun AchievementBadge(label: String, value: String, icon: ImageVector, color: Col
 
 @Composable
 fun ProgressStatCard(modifier: Modifier, label: String, value: String, progress: Float, icon: ImageVector, color: Color) {
-    Surface(modifier = modifier, color = Color(0xFF131313), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))) {
+    Surface(modifier = modifier, color = SurfaceContainerLow, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.18f))) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
@@ -531,15 +532,15 @@ fun LogoutItem(onClick: () -> Unit) {
                 indication = null,
                 onClick = onClick
             )
-            .background(if (isPressed) Color(0xFFFF716C).copy(alpha = 0.15f) else Color(0xFFFF716C).copy(alpha = 0.05f))
+            .background(if (isPressed) DangerColor.copy(alpha = 0.15f) else DangerColor.copy(alpha = 0.05f))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Surface(modifier = Modifier.size(40.dp), color = Color(0xFFFF716C).copy(alpha = 0.2f), shape = RoundedCornerShape(12.dp)) {
-            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Logout, contentDescription = null, tint = Color(0xFFFF716C), modifier = Modifier.size(20.dp)) }
+        Surface(modifier = Modifier.size(40.dp), color = DangerColor.copy(alpha = 0.2f), shape = RoundedCornerShape(12.dp)) {
+            Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Logout, contentDescription = null, tint = DangerColor, modifier = Modifier.size(20.dp)) }
         }
         Spacer(modifier = Modifier.width(16.dp))
-        Text(stringResource(R.string.logout), color = Color(0xFFFF716C), fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.logout), color = DangerColor, fontWeight = FontWeight.Bold)
     }
 }
 

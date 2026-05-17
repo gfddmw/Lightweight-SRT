@@ -5,11 +5,16 @@ import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.MediaStore
 import android.util.Log
+import android.view.MotionEvent
 import android.widget.Toast
 import android.speech.tts.TextToSpeech
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +23,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import androidx.core.os.LocaleListCompat
 import com.example.srt_app.camera.SignFrameAnalyzer
 import com.example.srt_app.ml.HandLandmarkerHelper
 import com.example.srt_app.ml.LightweightTranslator
@@ -41,6 +47,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListener {
 
@@ -54,6 +61,7 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
 
     private var imageCapture: ImageCapture? = null
     private var lastPreviewView: PreviewView? = null
+    private var activeCamera: Camera? = null
 
     // UI States
     private var translationResult by mutableStateOf("")
@@ -72,6 +80,9 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
     private val STABILITY_THRESHOLD = 0.02f
     private val RECOGNITION_COOLDOWN = 1500L
     private var lastSpeakTime = 0L
+    private var autoFocusEnabled = true
+    private var vibrationEnabled = true
+    private var displayDurationMillis = 5000L
     
     private enum class RecognitionState { IDLE, DETECTING, STABLE, LOCKED }
     private var currentState = RecognitionState.IDLE
@@ -124,6 +135,27 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                 }
             }
 
+            LaunchedEffect(settings?.appLanguage) {
+                settings?.appLanguage?.let { applyAppLocale(it) }
+            }
+
+            LaunchedEffect(settings?.outputLanguage) {
+                settings?.outputLanguage?.let { updateTtsLanguage(it) }
+            }
+
+            LaunchedEffect(settings?.autoFocus) {
+                autoFocusEnabled = settings?.autoFocus ?: true
+                lastPreviewView?.let { configureAutoFocus(it) }
+            }
+
+            LaunchedEffect(settings?.displayDuration) {
+                displayDurationMillis = durationToMillis(settings?.displayDuration ?: "5s")
+            }
+
+            LaunchedEffect(settings?.vibration) {
+                vibrationEnabled = settings?.vibration ?: true
+            }
+
             SRTAppTheme {
                 if (settings != null) {
                     when (currentScreen) {
@@ -141,11 +173,15 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                                 onTypeBackSend = { text ->
                                     translationResult = text
                                     speak(text)
+                                    performTranslationFeedback()
+                                    scheduleTranslationClear(text)
                                 },
                                 showSkeleton = settings.showSkeleton,
                                 handLandmarks = handLandmarks,
                                 signLanguage = settings.signLanguageStandard,
-                                outputLanguage = settings.outputLanguage
+                                outputLanguage = settings.outputLanguage,
+                                textSize = settings.textSize,
+                                flashOnTranslation = settings.flashOnTranslation
                             )
                         }
                         "settings" -> {
@@ -370,6 +406,8 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                 if (translation.isNotEmpty() && translation != lastSpokenWord) {
                     translationResult = translation
                     speak(translation)
+                    performTranslationFeedback()
+                    scheduleTranslationClear(translation)
                     lastSpokenWord = translation
                     lastSpeakTime = System.currentTimeMillis()
                     synchronized(frameBuffer) { frameBuffer.clear() }
@@ -389,7 +427,8 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
                 .also { it.setAnalyzer(cameraExecutor) { proxy -> handLandmarkerHelper?.detectLiveStream(proxy, lensFacing == CameraSelector.LENS_FACING_FRONT) } }
             try {
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(this, CameraSelector.Builder().requireLensFacing(lensFacing).build(), preview, imageCapture, analysis)
+                activeCamera = cameraProvider.bindToLifecycle(this, CameraSelector.Builder().requireLensFacing(lensFacing).build(), preview, imageCapture, analysis)
+                configureAutoFocus(previewView)
             } catch (e: Exception) { Log.e("MainActivity", "Camera binding failed", e) }
         }, ContextCompat.getMainExecutor(this))
     }
@@ -411,6 +450,82 @@ class MainActivity : AppCompatActivity(), HandLandmarkerHelper.LandmarkerListene
             override fun onError(e: ImageCaptureException) { Toast.makeText(baseContext, "Failed: ${e.message}", Toast.LENGTH_SHORT).show() }
             override fun onImageSaved(r: ImageCapture.OutputFileResults) { Toast.makeText(baseContext, "Saved: ${r.savedUri}", Toast.LENGTH_SHORT).show() }
         })
+    }
+
+    private fun configureAutoFocus(previewView: PreviewView) {
+        if (!autoFocusEnabled || activeCamera == null) {
+            previewView.setOnTouchListener(null)
+            return
+        }
+
+        previewView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP) {
+                requestFocusAt(previewView, event.x, event.y)
+            }
+            true
+        }
+
+        previewView.post {
+            if (autoFocusEnabled && previewView.width > 0 && previewView.height > 0) {
+                requestFocusAt(previewView, previewView.width / 2f, previewView.height / 2f)
+            }
+        }
+    }
+
+    private fun requestFocusAt(previewView: PreviewView, x: Float, y: Float) {
+        val camera = activeCamera ?: return
+        val point = previewView.meteringPointFactory.createPoint(x, y)
+        val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
+            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+            .build()
+        camera.cameraControl.startFocusAndMetering(action)
+    }
+
+    private fun durationToMillis(duration: String): Long {
+        return when (duration) {
+            "3s" -> 3000L
+            "8s" -> 8000L
+            else -> 5000L
+        }
+    }
+
+    private fun scheduleTranslationClear(text: String) {
+        val expectedText = text
+        CoroutineScope(Dispatchers.Main).launch {
+            delay(displayDurationMillis)
+            if (translationResult == expectedText) {
+                translationResult = ""
+            }
+        }
+    }
+
+    private fun performTranslationFeedback() {
+        if (!vibrationEnabled) return
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(VIBRATOR_SERVICE) as? Vibrator
+        } ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(55L, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(55L)
+        }
+    }
+
+    private fun applyAppLocale(language: String) {
+        val languageTag = if (language == "zh") "zh" else "en"
+        if (AppCompatDelegate.getApplicationLocales().toLanguageTags() != languageTag) {
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(languageTag))
+        }
+    }
+
+    private fun updateTtsLanguage(language: String) {
+        val locale = if (language == "zh") Locale.SIMPLIFIED_CHINESE else Locale.ENGLISH
+        tts?.setLanguage(locale)
     }
 
     private fun initTTS() { tts = TextToSpeech(this) { if (it == TextToSpeech.SUCCESS) tts?.setLanguage(Locale.getDefault()) } }

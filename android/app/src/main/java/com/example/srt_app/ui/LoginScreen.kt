@@ -16,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.srt_app.R
@@ -73,7 +74,7 @@ fun LoginScreen(
             }
             is AuthState.CodeSent -> {
                 verificationToken = (authState as AuthState.CodeSent).token // 捕获并保存 Token
-                Toast.makeText(context, "Verification code sent to your email", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.verification_sent), Toast.LENGTH_SHORT).show()
             }
             else -> {}
         }
@@ -100,30 +101,37 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp)
+                .statusBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 28.dp)
                 .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             // Logo / Title
             Text(
-                text = "LUMINARY",
+                text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.displaySmall.copy(
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 8.sp
+                    letterSpacing = 0.sp
                 ),
                 color = Color.White
             )
             Text(
-                text = stringResource(R.string.auth_system).uppercase(),
+                text = stringResource(R.string.auth_system),
                 style = MaterialTheme.typography.labelSmall.copy(
-                    letterSpacing = 2.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 color = PrimaryColor
             )
 
-            Spacer(modifier = Modifier.height(64.dp))
+            Spacer(modifier = Modifier.height(36.dp))
+
+            AuthModeToggle(
+                loginMode = loginMode,
+                onModeChange = { loginMode = it }
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Input Fields
             SenseInputField(
@@ -190,10 +198,9 @@ fun LoginScreen(
                 // Verification Code Field
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "VERIFICATION CODE",
+                        text = stringResource(R.string.verification_code),
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
                             color = OnSurfaceVariant.copy(alpha = 0.7f)
                         ),
                         modifier = Modifier.padding(start = 4.dp)
@@ -214,7 +221,7 @@ fun LoginScreen(
                                 value = verificationCode,
                                 onValueChange = { verificationCode = it },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("6-digit code", color = OnSurfaceVariant.copy(alpha = 0.5f)) },
+                                placeholder = { Text(stringResource(R.string.verification_code), color = OnSurfaceVariant.copy(alpha = 0.5f)) },
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
                                     unfocusedContainerColor = Color.Transparent,
@@ -231,32 +238,19 @@ fun LoginScreen(
                                     if (email.isNotEmpty()) {
                                         viewModel.sendVerificationCode(email)
                                     } else {
-                                        Toast.makeText(context, "Please enter email first", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 enabled = authState !is AuthState.Loading
                             ) {
-                                Text("GET CODE", color = PrimaryColor, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.get_code), color = PrimaryColor, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Switch Mode Button
-            TextButton(onClick = { 
-                loginMode = if (loginMode == LoginMode.Password) LoginMode.VerificationCode else LoginMode.Password 
-            }) {
-                Text(
-                    text = if (loginMode == LoginMode.Password) "Use Verification Code" else "Use Password",
-                    color = PrimaryColor.copy(alpha = 0.8f),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             // Login Button
             Button(
@@ -266,19 +260,19 @@ fun LoginScreen(
                             if (password.isNotEmpty()) {
                                 viewModel.login(email, password)
                             } else {
-                                Toast.makeText(context, "Please enter password", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.enter_password), Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             if (verificationCode.isNotEmpty() && verificationToken.isNotEmpty()) {
                                 viewModel.loginWithCode(email, verificationCode, verificationToken)
                             } else if (verificationToken.isEmpty()) {
-                                Toast.makeText(context, "Please get verification code first", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.send_code_first), Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "Please enter verification code", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, context.getString(R.string.enter_code), Toast.LENGTH_SHORT).show()
                             }
                         }
                     } else {
-                        Toast.makeText(context, "Please enter email", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier
@@ -308,6 +302,55 @@ fun LoginScreen(
                     Text(stringResource(R.string.create_account), color = PrimaryColor, fontWeight = FontWeight.Bold)
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun AuthModeToggle(loginMode: LoginMode, onModeChange: (LoginMode) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceContainerLow, RoundedCornerShape(14.dp))
+            .border(1.dp, OutlineVariant.copy(alpha = 0.28f), RoundedCornerShape(14.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        AuthModeButton(
+            label = stringResource(R.string.password),
+            active = loginMode == LoginMode.Password,
+            modifier = Modifier.weight(1f)
+        ) {
+            onModeChange(LoginMode.Password)
+        }
+        AuthModeButton(
+            label = stringResource(R.string.verification_code),
+            active = loginMode == LoginMode.VerificationCode,
+            modifier = Modifier.weight(1f)
+        ) {
+            onModeChange(LoginMode.VerificationCode)
+        }
+    }
+}
+
+@Composable
+fun AuthModeButton(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        color = if (active) PrimaryColor else Color.Transparent,
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier
+            .height(42.dp)
+            .clickable { onClick() }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                color = if (active) OnPrimaryFixed else OnSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

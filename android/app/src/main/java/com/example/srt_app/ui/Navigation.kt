@@ -35,26 +35,28 @@ fun SenseBottomNavBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
-        color = SurfaceContainer,
-        border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.15f)),
-        shadowElevation = 16.dp
+            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+        color = SurfaceContainer.copy(alpha = 0.98f),
+        border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.24f)),
+        shadowElevation = 18.dp
     ) {
         Row(
             modifier = Modifier
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 8.dp)
+                .padding(horizontal = 20.dp, vertical = 10.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceAround,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Person,
                 label = stringResource(R.string.profile),
                 isActive = selectedTab == 0,
                 onClick = onNavigateToProfile
             )
             NavItem(
+                modifier = Modifier.weight(1f),
                 icon = Icons.Default.Translate,
                 label = stringResource(R.string.translator),
                 isActive = selectedTab == 1,
@@ -65,33 +67,47 @@ fun SenseBottomNavBar(
 }
 
 @Composable
-fun NavItem(icon: ImageVector, label: String, isActive: Boolean, onClick: () -> Unit) {
-    Column(
+fun NavItem(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isActive) PrimaryColor.copy(alpha = 0.1f) else Color.Transparent)
+            .then(modifier)
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(2.dp),
+        color = if (isActive) PrimaryColor else Color.Transparent,
+        shape = RoundedCornerShape(14.dp),
+        border = if (isActive) null else BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.18f))
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = if (isActive) PrimaryColor else OnSurfaceVariant,
-            modifier = Modifier.size(26.dp)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        @Suppress("DEPRECATION")
-        Text(
-            text = label.uppercase(),
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                letterSpacing = 0.5.sp,
-                color = if (isActive) PrimaryColor else Color.White
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isActive) OnPrimaryFixed else OnSurfaceVariant,
+                modifier = Modifier.size(22.dp)
             )
-        )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isActive) OnPrimaryFixed else OnSurfaceVariant
+                )
+            )
+        }
     }
 }
 
@@ -101,20 +117,54 @@ fun SenseInputField(
     onValueChange: (String) -> Unit, 
     label: String, 
     icon: ImageVector,
-    visualTransformation: VisualTransformation = VisualTransformation.None
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    placeholder: String = ""
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = label.uppercase(), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = OnSurfaceVariant.copy(alpha = 0.7f)), modifier = Modifier.padding(start = 4.dp))
-        Surface(color = SurfaceDim, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.3f))) {
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = OnSurfaceVariant
+            ),
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        Surface(
+            color = SurfaceContainerLow,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.35f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Icon(icon, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(20.dp))
-                BasicTextField(
+                TextField(
                     value = value, 
                     onValueChange = onValueChange, 
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White), 
-                    cursorBrush = SolidColor(PrimaryColor), 
                     modifier = Modifier.weight(1f),
-                    visualTransformation = visualTransformation
+                    visualTransformation = visualTransformation,
+                    placeholder = {
+                        if (placeholder.isNotEmpty()) {
+                            Text(placeholder, color = OnSurfaceVariant.copy(alpha = 0.58f))
+                        }
+                    },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = PrimaryColor,
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface
+                    )
                 )
             }
         }

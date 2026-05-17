@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,7 +52,7 @@ fun RegisterScreen(
         when (authState) {
             is AuthState.Success -> {
                 Log.i("SRT_DEBUG", ">>> Register SUCCESS for user: $username")
-                Toast.makeText(context, "注册成功！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.register_success), Toast.LENGTH_SHORT).show()
                 onRegisterSuccess()
                 viewModel.resetState()
             }
@@ -64,7 +65,7 @@ fun RegisterScreen(
             is AuthState.CodeSent -> {
                 verificationId = (authState as AuthState.CodeSent).token
                 Log.i("SRT_DEBUG", ">>> Verification code sent, ID: $verificationId")
-                Toast.makeText(context, "验证码已发送", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, context.getString(R.string.verification_sent), Toast.LENGTH_SHORT).show()
             }
             else -> {}
         }
@@ -72,22 +73,61 @@ fun RegisterScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(SurfaceDim)) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(32.dp).verticalScroll(rememberScrollState()),
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 28.dp)
+                .verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text("加入 LUMINARY", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = 2.sp), color = Color.White)
-            Text("创建您的阿里云账户", style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp, color = PrimaryColor))
+            Text(
+                stringResource(R.string.join_luminary),
+                style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black),
+                color = Color.White
+            )
+            Text(
+                stringResource(R.string.create_secure_account),
+                style = MaterialTheme.typography.labelSmall.copy(color = PrimaryColor, fontWeight = FontWeight.Bold)
+            )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
-            SenseInputField(value = username, onValueChange = { username = it }, label = "用户名", icon = Icons.Default.Person)
+            SenseInputField(value = username, onValueChange = { username = it }, label = stringResource(R.string.username), icon = Icons.Default.Person)
             Spacer(modifier = Modifier.height(16.dp))
-            SenseInputField(value = email, onValueChange = { email = it }, label = "电子邮箱", icon = Icons.Default.Email)
+            SenseInputField(value = email, onValueChange = { email = it }, label = stringResource(R.string.email_address), icon = Icons.Default.Email)
             Spacer(modifier = Modifier.height(16.dp))
-            SenseInputField(value = password, onValueChange = { password = it }, label = "设置密码", icon = Icons.Default.Lock)
+            SenseInputField(
+                value = password,
+                onValueChange = { password = it },
+                label = stringResource(R.string.password),
+                icon = Icons.Default.Lock,
+                visualTransformation = PasswordVisualTransformation()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SenseInputField(
+                    value = verificationCode,
+                    onValueChange = { verificationCode = it },
+                    label = stringResource(R.string.verification_code),
+                    icon = Icons.Default.VpnKey
+                )
+                TextButton(
+                    onClick = {
+                        if (email.isNotEmpty()) {
+                            viewModel.sendVerificationCode(email)
+                        } else {
+                            Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    enabled = authState !is AuthState.Loading,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(stringResource(R.string.get_code), color = PrimaryColor, fontWeight = FontWeight.Bold)
+                }
+            }
             
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Register Button
             Button(
@@ -95,7 +135,7 @@ fun RegisterScreen(
                     // 按钮点击瞬间立即打印
                     Log.e("!!!_DEBUG_!!!", ">>> CLICK REGISTER BUTTON | User: $username | Email: $email")
                     
-                    if (email.isNotEmpty() && password.isNotEmpty() && username.isNotEmpty()) {
+                    if (email.isNotEmpty() && password.isNotEmpty() && username.isNotEmpty() && verificationCode.isNotEmpty() && verificationId.isNotEmpty()) {
                         viewModel.register(
                             username = username,
                             email = email,
@@ -105,7 +145,7 @@ fun RegisterScreen(
                         ) 
                     } else {
                         Log.e("!!!_DEBUG_!!!", ">>> ABORT: Some fields are empty")
-                        Toast.makeText(context, "请填写所有必填项", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.fill_required_fields), Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -116,12 +156,12 @@ fun RegisterScreen(
                 if (authState is AuthState.Loading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = OnPrimaryFixed)
                 } else {
-                    Text("立即注册", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.create_account), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 }
             }
 
             TextButton(onClick = onNavigateToBack, modifier = Modifier.padding(top = 16.dp)) {
-                Text("已有账户？点击登录", color = OnSurfaceVariant)
+                Text(stringResource(R.string.already_have_account), color = OnSurfaceVariant)
             }
         }
     }

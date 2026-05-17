@@ -9,6 +9,7 @@
     <string name="profile">我的</string>
     <string name="translator">翻译器</string>
     <string name="settings">设置</string>
+    <string name="menu">菜单</string>
     <string name="history">历史记录</string>
     <string name="voice_mic">语音互动</string>
     <string name="to">至</string>
@@ -17,11 +18,19 @@
     <string name="type_back">输入回复</string>
     <string name="type_something">输入交流内容...</string>
     <string name="send">发送</string>
+    <string name="recognition_ready">已检测到手部</string>
+    <string name="recognition_waiting">等待手部进入画面</string>
+    <string name="camera_hint">实时相机识别</string>
+    <string name="reply_placeholder">输入快速回复...</string>
+    <string name="send_reply">发送回复</string>
+    <string name="capture_photo">拍摄照片</string>
+    <string name="open_settings">打开设置</string>
 
     <!-- SettingsScreen -->
     <string name="settings_title">设置</string>
     <string name="back">返回</string>
     <string name="cancel">取消</string>
+    <string name="ok">确定</string>
     
     <string name="header_general">常规</string>
     <string name="app_language">应用语言</string>
@@ -78,10 +87,17 @@
     <string name="header_about_help">关于与帮助</string>
     <string name="user_guide">用户指南</string>
     <string name="reset_settings">重置所有设置</string>
+    <string name="user_guide_title">如何使用手语翻译器</string>
+    <string name="user_guide_body">请让双手保持在相机画面内，手势稳定后等待识别结果。翻译结果会显示并朗读，也可以使用底部输入框快速文字回复。</string>
+    <string name="reset_settings_title">重置设置？</string>
+    <string name="reset_settings_desc">这会将语言、追踪、文本、显示时长、闪光和震动偏好恢复为默认值。</string>
+    <string name="reset">重置</string>
     
     <string name="pro_tracking_title">专业追踪</string>
     <string name="pro_tracking_desc">解锁双手追踪和多方言支持。</string>
     <string name="upgrade_now">立即升级</string>
+    <string name="upgrade_title">专业追踪</string>
+    <string name="upgrade_desc">升级入口已接通。当前版本尚未配置支付流程，因此这里会展示专业版能力说明，而不会进入结账。</string>
 
     <!-- Profile Screen -->
     <string name="elite_interpreter">高级翻译官</string>
@@ -128,6 +144,18 @@
     <string name="start_journey">开启您的翻译之旅</string>
     <string name="username">用户名</string>
     <string name="already_have_account">已有账号？</string>
+    <string name="verification_code">验证码</string>
+    <string name="get_code">获取验证码</string>
+    <string name="use_verification_code">使用验证码登录</string>
+    <string name="use_password">使用密码登录</string>
+    <string name="enter_email_first">请先输入邮箱</string>
+    <string name="enter_password">请输入密码</string>
+    <string name="enter_code">请输入验证码</string>
+    <string name="send_code_first">请先获取验证码</string>
+    <string name="fill_required_fields">请填写所有必填项</string>
+    <string name="create_secure_account">创建安全账户</string>
+    <string name="verification_sent">验证码已发送</string>
+    <string name="register_success">账号创建成功</string>
     <string name="bio">个人简介</string>
     <string name="save_changes">保存更改</string>
     <string name="profile_updated">资料已更新！</string>

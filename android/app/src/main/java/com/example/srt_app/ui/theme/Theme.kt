@@ -7,27 +7,37 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
 private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryBlue,
-    secondary = GlowingBlue,
-    background = CharcoalBackground,
-    surface = SurfaceDark,
-    onPrimary = OnPrimaryDark,
-    onSecondary = CharcoalBackground,
-    onBackground = PureWhite,
-    onSurface = PureWhite,
-    error = ErrorRed
+    primary = PrimaryColor,
+    secondary = SecondaryColor,
+    tertiary = TertiaryColor,
+    background = SurfaceDim,
+    surface = SurfaceContainer,
+    surfaceVariant = SurfaceVariant,
+    onPrimary = OnPrimaryFixed,
+    onSecondary = ColorOnWarm,
+    onTertiary = PureWhite,
+    onBackground = OnBackground,
+    onSurface = OnSurface,
+    onSurfaceVariant = OnSurfaceVariant,
+    outline = OutlineVariant,
+    error = DangerColor
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = PrimaryBlue,
-    secondary = GlowingBlue,
-    background = CharcoalBackground, // Live Transcribe typically stays dark
-    surface = SurfaceDark,
-    onPrimary = OnPrimaryDark,
-    onSecondary = CharcoalBackground,
-    onBackground = PureWhite,
-    onSurface = PureWhite,
-    error = ErrorRed
+    primary = PrimaryColor,
+    secondary = SecondaryColor,
+    tertiary = TertiaryColor,
+    background = SurfaceDim, // Camera recognition remains dark for visual focus.
+    surface = SurfaceContainer,
+    surfaceVariant = SurfaceVariant,
+    onPrimary = OnPrimaryFixed,
+    onSecondary = ColorOnWarm,
+    onTertiary = PureWhite,
+    onBackground = OnBackground,
+    onSurface = OnSurface,
+    onSurfaceVariant = OnSurfaceVariant,
+    outline = OutlineVariant,
+    error = DangerColor
 )
 
 @Composable
