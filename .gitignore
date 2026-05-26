@@ -16,9 +16,11 @@ android/script
 /remotion-midterm
 /论文
 /中期答辩
+scripts/presentation
+/visualizations
 
 # 忽略数据文件夹 (如果之前没加)
-data/WLASL2000/*.mp4
+data/
 .idea/
 
 # 忽略生成的中间特征（体积大，可再生）
@@ -40,3 +42,6 @@ work_dir/
 .externalNativeBuild
 .cxx
 local.properties
+*.html
+*.log
+.superpowers
