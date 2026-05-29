@@ -6,12 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.runtime.Composable
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.runtime.*
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -117,22 +118,32 @@ fun SenseInputField(
     onValueChange: (String) -> Unit, 
     label: String, 
     icon: ImageVector,
+    modifier: Modifier = Modifier,
     visualTransformation: VisualTransformation = VisualTransformation.None,
-    placeholder: String = ""
+    placeholder: String = "",
+    errorText: String? = null
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor = when {
+        errorText != null -> DangerColor
+        isFocused -> PrimaryColor
+        else -> OutlineVariant.copy(alpha = 0.35f)
+    }
+    val borderWidth = if (isFocused || errorText != null) 1.5.dp else 1.dp
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium.copy(
                 fontWeight = FontWeight.Bold,
-                color = OnSurfaceVariant
+                color = if (errorText != null) DangerColor else OnSurfaceVariant
             ),
             modifier = Modifier.padding(start = 4.dp)
         )
         Surface(
             color = SurfaceContainerLow,
             shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.35f))
+            border = BorderStroke(borderWidth, borderColor)
         ) {
             Row(
                 modifier = Modifier
@@ -142,11 +153,22 @@ fun SenseInputField(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(icon, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = icon, 
+                    contentDescription = null, 
+                    tint = when {
+                        errorText != null -> DangerColor
+                        isFocused -> PrimaryColor
+                        else -> OnSurfaceVariant
+                    }, 
+                    modifier = Modifier.size(20.dp)
+                )
                 TextField(
                     value = value, 
                     onValueChange = onValueChange, 
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isFocused = it.isFocused },
                     visualTransformation = visualTransformation,
                     placeholder = {
                         if (placeholder.isNotEmpty()) {
@@ -167,6 +189,207 @@ fun SenseInputField(
                     )
                 )
             }
+        }
+        if (errorText != null) {
+            Text(
+                text = errorText,
+                color = DangerColor,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SensePasswordField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    errorText: String? = null
+) {
+    var isPasswordVisible by remember { mutableStateOf(false) }
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor = when {
+        errorText != null -> DangerColor
+        isFocused -> PrimaryColor
+        else -> OutlineVariant.copy(alpha = 0.35f)
+    }
+    val borderWidth = if (isFocused || errorText != null) 1.5.dp else 1.dp
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = if (errorText != null) DangerColor else OnSurfaceVariant
+            ),
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        Surface(
+            color = SurfaceContainerLow,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(borderWidth, borderColor)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock, 
+                    contentDescription = null, 
+                    tint = when {
+                        errorText != null -> DangerColor
+                        isFocused -> PrimaryColor
+                        else -> OnSurfaceVariant
+                    }, 
+                    modifier = Modifier.size(20.dp)
+                )
+                TextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isFocused = it.isFocused },
+                    visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    placeholder = {
+                        if (placeholder.isNotEmpty()) {
+                            Text(placeholder, color = OnSurfaceVariant.copy(alpha = 0.58f))
+                        }
+                    },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = PrimaryColor,
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface
+                    )
+                )
+                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                    Icon(
+                        imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                        contentDescription = if (isPasswordVisible) "Hide password" else "Show password",
+                        tint = OnSurfaceVariant
+                    )
+                }
+            }
+        }
+        if (errorText != null) {
+            Text(
+                text = errorText,
+                color = DangerColor,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun SenseVerificationCodeField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    onGetCodeClick: () -> Unit,
+    isGetCodeEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    errorText: String? = null
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor = when {
+        errorText != null -> DangerColor
+        isFocused -> PrimaryColor
+        else -> OutlineVariant.copy(alpha = 0.35f)
+    }
+    val borderWidth = if (isFocused || errorText != null) 1.5.dp else 1.dp
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                fontWeight = FontWeight.Bold,
+                color = if (errorText != null) DangerColor else OnSurfaceVariant
+            ),
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        Surface(
+            color = SurfaceContainerLow,
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(borderWidth, borderColor)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .padding(horizontal = 14.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.VpnKey, 
+                    contentDescription = null, 
+                    tint = when {
+                        errorText != null -> DangerColor
+                        isFocused -> PrimaryColor
+                        else -> OnSurfaceVariant
+                    }, 
+                    modifier = Modifier.size(20.dp)
+                )
+                TextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isFocused = it.isFocused },
+                    placeholder = {
+                        if (placeholder.isNotEmpty()) {
+                            Text(placeholder, color = OnSurfaceVariant.copy(alpha = 0.58f))
+                        }
+                    },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = PrimaryColor,
+                        focusedTextColor = OnSurface,
+                        unfocusedTextColor = OnSurface
+                    )
+                )
+                TextButton(
+                    onClick = onGetCodeClick,
+                    enabled = isGetCodeEnabled
+                ) {
+                    Text(
+                        text = stringResource(R.string.get_code),
+                        color = if (isGetCodeEnabled) PrimaryColor else OnSurfaceVariant.copy(alpha = 0.5f),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+        if (errorText != null) {
+            Text(
+                text = errorText,
+                color = DangerColor,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+            )
         }
     }
 }

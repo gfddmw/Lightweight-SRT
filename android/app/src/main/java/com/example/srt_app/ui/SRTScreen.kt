@@ -19,6 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -225,6 +229,10 @@ fun TranslationPanel(
         else -> 34.sp
     }
 
+    var isFocused by remember { mutableStateOf(false) }
+    val borderColor = if (isFocused) PrimaryColor else OutlineVariant.copy(alpha = 0.3f)
+    val borderWidth = if (isFocused) 1.5.dp else 1.dp
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = SurfaceContainer.copy(alpha = 0.96f),
@@ -261,7 +269,7 @@ fun TranslationPanel(
             Surface(
                 color = SurfaceContainerLow,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.3f))
+                border = BorderStroke(borderWidth, borderColor)
             ) {
                 Row(
                     modifier = Modifier
@@ -270,11 +278,18 @@ fun TranslationPanel(
                         .padding(start = 12.dp, end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Keyboard, contentDescription = null, tint = SecondaryColor, modifier = Modifier.size(20.dp))
+                    Icon(
+                        Icons.Default.Keyboard, 
+                        contentDescription = null, 
+                        tint = if (isFocused) PrimaryColor else SecondaryColor, 
+                        modifier = Modifier.size(20.dp)
+                    )
                     TextField(
                         value = replyText,
                         onValueChange = onReplyTextChange,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { isFocused = it.isFocused },
                         placeholder = { Text(stringResource(R.string.reply_placeholder), color = OnSurfaceVariant.copy(alpha = 0.62f)) },
                         singleLine = true,
                         colors = TextFieldDefaults.colors(
@@ -287,9 +302,14 @@ fun TranslationPanel(
                             unfocusedTextColor = OnSurface
                         )
                     )
+                    val sendInteraction = remember { MutableInteractionSource() }
+                    val sendPressed by sendInteraction.collectIsPressedAsState()
+                    val sendScale by animateFloatAsState(if (sendPressed) 0.9f else 1f, label = "sendScale")
                     IconButton(
                         onClick = onReplySend,
-                        enabled = replyText.isNotBlank()
+                        enabled = replyText.isNotBlank(),
+                        modifier = Modifier.scale(sendScale),
+                        interactionSource = sendInteraction
                     ) {
                         Icon(
                             Icons.Default.Send,
@@ -350,6 +370,10 @@ fun LanguagePairChip(signShort: String, outputShort: String) {
 
 @Composable
 fun CameraControlButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.94f else 1f, label = "scale")
+
     Surface(
         color = SurfaceContainer.copy(alpha = 0.74f),
         shape = CircleShape,
@@ -357,7 +381,12 @@ fun CameraControlButton(icon: ImageVector, contentDescription: String, onClick: 
         shadowElevation = 8.dp,
         modifier = Modifier
             .size(50.dp)
-            .clickable { onClick() }
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(icon, contentDescription = contentDescription, tint = OnSurface, modifier = Modifier.size(23.dp))
@@ -399,12 +428,21 @@ fun MetadataBadge(text: String, isGlow: Boolean) {
 
 @Composable
 fun FloatingMicButton() {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.94f else 1f, label = "scale")
+
     Surface(
         color = PrimaryColor,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .size(56.dp)
-            .clickable { /* Mic logic */ },
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = { /* Mic logic */ }
+            ),
         shadowElevation = 8.dp
     ) {
         Box(contentAlignment = Alignment.Center) {

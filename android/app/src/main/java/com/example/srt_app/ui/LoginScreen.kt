@@ -1,7 +1,10 @@
 package com.example.srt_app.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,21 +13,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.srt_app.R
 import com.example.srt_app.ui.theme.*
-
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.srt_app.data.AppDatabase
 import com.example.srt_app.data.UserRepository
 import com.example.srt_app.utils.TokenManager
 import com.example.srt_app.ui.viewmodel.AuthState
@@ -52,8 +52,18 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var verificationCode by remember { mutableStateOf("") }
-    var verificationToken by remember { mutableStateOf("") } // 新增：保存获取到的 Token
-    var isPasswordVisible by remember { mutableStateOf(false) }
+    var verificationToken by remember { mutableStateOf("") }
+    
+    // Local Validation Errors
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var codeError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(loginMode) {
+        emailError = null
+        passwordError = null
+        codeError = null
+    }
 
     LaunchedEffect(authState) {
         when (authState) {
@@ -73,7 +83,7 @@ fun LoginScreen(
                 viewModel.resetState()
             }
             is AuthState.CodeSent -> {
-                verificationToken = (authState as AuthState.CodeSent).token // 捕获并保存 Token
+                verificationToken = (authState as AuthState.CodeSent).token
                 Toast.makeText(context, context.getString(R.string.verification_sent), Toast.LENGTH_SHORT).show()
             }
             else -> {}
@@ -85,7 +95,6 @@ fun LoginScreen(
             .fillMaxSize()
             .background(SurfaceDim)
     ) {
-        // Decorative background glow
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -107,7 +116,6 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo / Title
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.displaySmall.copy(
@@ -133,154 +141,124 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Input Fields
             SenseInputField(
                 value = email,
-                onValueChange = { email = it },
+                onValueChange = { 
+                    email = it
+                    if (emailError != null) emailError = null
+                },
                 label = stringResource(R.string.email_address),
-                icon = Icons.Default.Email
+                icon = Icons.Default.Email,
+                errorText = emailError
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Dynamic Input Fields based on LoginMode
             if (loginMode == LoginMode.Password) {
-                // Password Field with Visibility Toggle
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.password).uppercase(),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp,
-                            color = OnSurfaceVariant.copy(alpha = 0.7f)
-                        ),
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.2f))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(20.dp))
-                            TextField(
-                                value = password,
-                                onValueChange = { password = it },
-                                modifier = Modifier.weight(1f),
-                                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    cursorColor = PrimaryColor,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                singleLine = true
-                            )
-                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                Icon(
-                                    if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null,
-                                    tint = OnSurfaceVariant
-                                )
+                SensePasswordField(
+                    value = password,
+                    onValueChange = { 
+                        password = it
+                        if (passwordError != null) passwordError = null
+                    },
+                    label = stringResource(R.string.password),
+                    errorText = passwordError
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    val forgotInteraction = remember { MutableInteractionSource() }
+                    val forgotPressed by forgotInteraction.collectIsPressedAsState()
+                    val forgotScale by animateFloatAsState(if (forgotPressed) 0.95f else 1f, label = "forgotScale")
+                    TextButton(
+                        onClick = {
+                            if (email.isEmpty()) {
+                                emailError = context.getString(R.string.enter_email_first)
+                            } else {
+                                Toast.makeText(context, context.getString(R.string.forgot_password_hint), Toast.LENGTH_LONG).show()
                             }
-                        }
+                        },
+                        modifier = Modifier.scale(forgotScale),
+                        interactionSource = forgotInteraction
+                    ) {
+                        Text(
+                            text = stringResource(R.string.forgot_password),
+                            color = PrimaryColor,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelMedium
+                        )
                     }
                 }
             } else {
-                // Verification Code Field
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.verification_code),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurfaceVariant.copy(alpha = 0.7f)
-                        ),
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.3f),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, OutlineVariant.copy(alpha = 0.2f))
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.VpnKey, contentDescription = null, tint = PrimaryColor, modifier = Modifier.size(20.dp))
-                            TextField(
-                                value = verificationCode,
-                                onValueChange = { verificationCode = it },
-                                modifier = Modifier.weight(1f),
-                                placeholder = { Text(stringResource(R.string.verification_code), color = OnSurfaceVariant.copy(alpha = 0.5f)) },
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    cursorColor = PrimaryColor,
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                singleLine = true
-                            )
-                            TextButton(
-                                onClick = {
-                                    if (email.isNotEmpty()) {
-                                        viewModel.sendVerificationCode(email)
-                                    } else {
-                                        Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                enabled = authState !is AuthState.Loading
-                            ) {
-                                Text(stringResource(R.string.get_code), color = PrimaryColor, fontWeight = FontWeight.Bold)
-                            }
+                SenseVerificationCodeField(
+                    value = verificationCode,
+                    onValueChange = { 
+                        verificationCode = it
+                        if (codeError != null) codeError = null
+                    },
+                    label = stringResource(R.string.verification_code),
+                    onGetCodeClick = {
+                        if (email.isNotEmpty()) {
+                            viewModel.sendVerificationCode(email)
+                        } else {
+                            emailError = context.getString(R.string.enter_email_first)
                         }
-                    }
-                }
+                    },
+                    isGetCodeEnabled = authState !is AuthState.Loading,
+                    errorText = codeError
+                )
             }
 
             Spacer(modifier = Modifier.height(28.dp))
 
-            // Login Button
+            val buttonInteraction = remember { MutableInteractionSource() }
+            val buttonPressed by buttonInteraction.collectIsPressedAsState()
+            val buttonScale by animateFloatAsState(if (buttonPressed) 0.96f else 1f, label = "buttonScale")
+
             Button(
                 onClick = {
-                    if (email.isNotEmpty()) {
-                        if (loginMode == LoginMode.Password) {
-                            if (password.isNotEmpty()) {
-                                viewModel.login(email, password)
-                            } else {
-                                Toast.makeText(context, context.getString(R.string.enter_password), Toast.LENGTH_SHORT).show()
-                            }
+                    emailError = null
+                    passwordError = null
+                    codeError = null
+
+                    if (email.isEmpty()) {
+                        emailError = context.getString(R.string.enter_email_first)
+                        return@Button
+                    }
+
+                    if (loginMode == LoginMode.Password) {
+                        if (password.isEmpty()) {
+                            passwordError = context.getString(R.string.enter_password)
                         } else {
-                            if (verificationCode.isNotEmpty() && verificationToken.isNotEmpty()) {
-                                viewModel.loginWithCode(email, verificationCode, verificationToken)
-                            } else if (verificationToken.isEmpty()) {
-                                Toast.makeText(context, context.getString(R.string.send_code_first), Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, context.getString(R.string.enter_code), Toast.LENGTH_SHORT).show()
-                            }
+                            viewModel.login(email, password)
                         }
                     } else {
-                        Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
+                        var hasError = false
+                        if (verificationToken.isEmpty()) {
+                            emailError = context.getString(R.string.send_code_first)
+                            hasError = true
+                        }
+                        if (verificationCode.isEmpty()) {
+                            codeError = context.getString(R.string.enter_code)
+                            hasError = true
+                        }
+                        if (!hasError) {
+                            viewModel.loginWithCode(email, verificationCode, verificationToken)
+                        }
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(56.dp)
+                    .scale(buttonScale),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor),
-                enabled = authState !is AuthState.Loading
+                enabled = authState !is AuthState.Loading,
+                interactionSource = buttonInteraction
             ) {
                 if (authState is AuthState.Loading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = OnPrimaryFixed)
@@ -295,10 +273,16 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Footer Link
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.new_to_luminary), color = OnSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onNavigateToRegister) {
+                val footerLinkInteraction = remember { MutableInteractionSource() }
+                val footerLinkPressed by footerLinkInteraction.collectIsPressedAsState()
+                val footerLinkScale by animateFloatAsState(if (footerLinkPressed) 0.95f else 1f, label = "footerLinkScale")
+                TextButton(
+                    onClick = onNavigateToRegister,
+                    modifier = Modifier.scale(footerLinkScale),
+                    interactionSource = footerLinkInteraction
+                ) {
                     Text(stringResource(R.string.create_account), color = PrimaryColor, fontWeight = FontWeight.Bold)
                 }
             }
@@ -335,12 +319,21 @@ fun AuthModeToggle(loginMode: LoginMode, onModeChange: (LoginMode) -> Unit) {
 
 @Composable
 fun AuthModeButton(label: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "scale")
+
     Surface(
         color = if (active) PrimaryColor else Color.Transparent,
         shape = RoundedCornerShape(10.dp),
         modifier = modifier
             .height(42.dp)
-            .clickable { onClick() }
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(

@@ -161,4 +161,6 @@
     <string name="profile_updated">Profile updated!</string>
     <string name="profile_updated_avatar">Profile and avatar updated!</string>
     <string name="upload_failed">Upload failed: %s</string>
+    <string name="forgot_password">Forgot Password?</string>
+    <string name="forgot_password_hint">Password reset instructions sent to your email.</string>
 </resources>

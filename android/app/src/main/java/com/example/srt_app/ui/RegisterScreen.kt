@@ -1,6 +1,9 @@
 package com.example.srt_app.ui
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -9,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +51,12 @@ fun RegisterScreen(
     var username by remember { mutableStateOf("") }
     var verificationCode by remember { mutableStateOf("") }
     var verificationId by remember { mutableStateOf("") }
+
+    // Local Validation Errors
+    var usernameError by remember { mutableStateOf<String?>(null) }
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var codeError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(authState) {
         when (authState) {
@@ -93,49 +103,101 @@ fun RegisterScreen(
 
             Spacer(modifier = Modifier.height(36.dp))
 
-            SenseInputField(value = username, onValueChange = { username = it }, label = stringResource(R.string.username), icon = Icons.Default.Person)
-            Spacer(modifier = Modifier.height(16.dp))
-            SenseInputField(value = email, onValueChange = { email = it }, label = stringResource(R.string.email_address), icon = Icons.Default.Email)
-            Spacer(modifier = Modifier.height(16.dp))
             SenseInputField(
-                value = password,
-                onValueChange = { password = it },
-                label = stringResource(R.string.password),
-                icon = Icons.Default.Lock,
-                visualTransformation = PasswordVisualTransformation()
+                value = username,
+                onValueChange = { 
+                    username = it
+                    if (usernameError != null) usernameError = null
+                },
+                label = stringResource(R.string.username),
+                icon = Icons.Default.Person,
+                errorText = usernameError
             )
+
             Spacer(modifier = Modifier.height(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SenseInputField(
-                    value = verificationCode,
-                    onValueChange = { verificationCode = it },
-                    label = stringResource(R.string.verification_code),
-                    icon = Icons.Default.VpnKey
-                )
-                TextButton(
-                    onClick = {
-                        if (email.isNotEmpty()) {
-                            viewModel.sendVerificationCode(email)
-                        } else {
-                            Toast.makeText(context, context.getString(R.string.enter_email_first), Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    enabled = authState !is AuthState.Loading,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text(stringResource(R.string.get_code), color = PrimaryColor, fontWeight = FontWeight.Bold)
-                }
-            }
+
+            SenseInputField(
+                value = email,
+                onValueChange = { 
+                    email = it
+                    if (emailError != null) emailError = null
+                },
+                label = stringResource(R.string.email_address),
+                icon = Icons.Default.Email,
+                errorText = emailError
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            SensePasswordField(
+                value = password,
+                onValueChange = { 
+                    password = it
+                    if (passwordError != null) passwordError = null
+                },
+                label = stringResource(R.string.password),
+                errorText = passwordError
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            SenseVerificationCodeField(
+                value = verificationCode,
+                onValueChange = { 
+                    verificationCode = it
+                    if (codeError != null) codeError = null
+                },
+                label = stringResource(R.string.verification_code),
+                onGetCodeClick = {
+                    if (email.isNotEmpty()) {
+                        viewModel.sendVerificationCode(email)
+                    } else {
+                        emailError = context.getString(R.string.enter_email_first)
+                    }
+                },
+                isGetCodeEnabled = authState !is AuthState.Loading,
+                errorText = codeError
+            )
             
             Spacer(modifier = Modifier.height(24.dp))
 
             // Register Button
+            val buttonInteraction = remember { MutableInteractionSource() }
+            val buttonPressed by buttonInteraction.collectIsPressedAsState()
+            val buttonScale by animateFloatAsState(if (buttonPressed) 0.96f else 1f, label = "buttonScale")
+
             Button(
                 onClick = {
-                    // 按钮点击瞬间立即打印
                     Log.e("!!!_DEBUG_!!!", ">>> CLICK REGISTER BUTTON | User: $username | Email: $email")
                     
-                    if (email.isNotEmpty() && password.isNotEmpty() && username.isNotEmpty() && verificationCode.isNotEmpty() && verificationId.isNotEmpty()) {
+                    usernameError = null
+                    emailError = null
+                    passwordError = null
+                    codeError = null
+
+                    var hasError = false
+                    if (username.isEmpty()) {
+                        usernameError = context.getString(R.string.fill_required_fields)
+                        hasError = true
+                    }
+                    if (email.isEmpty()) {
+                        emailError = context.getString(R.string.enter_email_first)
+                        hasError = true
+                    }
+                    if (password.isEmpty()) {
+                        passwordError = context.getString(R.string.enter_password)
+                        hasError = true
+                    }
+                    if (verificationCode.isEmpty()) {
+                        codeError = context.getString(R.string.enter_code)
+                        hasError = true
+                    }
+                    if (verificationId.isEmpty()) {
+                        emailError = context.getString(R.string.send_code_first)
+                        hasError = true
+                    }
+
+                    if (!hasError) {
                         viewModel.register(
                             username = username,
                             email = email,
@@ -145,22 +207,35 @@ fun RegisterScreen(
                         ) 
                     } else {
                         Log.e("!!!_DEBUG_!!!", ">>> ABORT: Some fields are empty")
-                        Toast.makeText(context, context.getString(R.string.fill_required_fields), Toast.LENGTH_SHORT).show()
                     }
                 },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .scale(buttonScale),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor),
-                enabled = authState !is AuthState.Loading
+                enabled = authState !is AuthState.Loading,
+                interactionSource = buttonInteraction
             ) {
                 if (authState is AuthState.Loading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = OnPrimaryFixed)
                 } else {
-                    Text(stringResource(R.string.create_account), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.create_account), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = OnPrimaryFixed)
                 }
             }
 
-            TextButton(onClick = onNavigateToBack, modifier = Modifier.padding(top = 16.dp)) {
+            val footerLinkInteraction = remember { MutableInteractionSource() }
+            val footerLinkPressed by footerLinkInteraction.collectIsPressedAsState()
+            val footerLinkScale by animateFloatAsState(if (footerLinkPressed) 0.95f else 1f, label = "footerLinkScale")
+
+            TextButton(
+                onClick = onNavigateToBack,
+                modifier = Modifier
+                    .padding(top = 16.dp)
+                    .scale(footerLinkScale),
+                interactionSource = footerLinkInteraction
+            ) {
                 Text(stringResource(R.string.already_have_account), color = OnSurfaceVariant)
             }
         }
