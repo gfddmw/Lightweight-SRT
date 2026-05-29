@@ -13,9 +13,9 @@ CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, "../.."))
 sys.path.append(PROJECT_ROOT)
 
-# 将官方克隆仓库加入系统检索路径（存放在 src/teacher_model/VAC_CSLR）
+# 将官方克隆仓库加入系统检索路径（存放在 src/teacher_model/CorrNet）
 TEACHER_MODEL_DIR = os.path.join(PROJECT_ROOT, "src/teacher_model")
-sys.path.append(os.path.join(TEACHER_MODEL_DIR, "VAC_CSLR"))
+sys.path.append(os.path.join(TEACHER_MODEL_DIR, "CorrNet"))
 
 # 2. 安全导入 SLRModel 模型类
 try:
@@ -24,9 +24,9 @@ except ImportError as e:
     print(f"\n[Error] 导入 'SLRModel' 失败，错误详情: {e}")
     import traceback
     traceback.print_exc()
-    print("提示：请确认您已将官方的 VIPL-SLP/VAC_CSLR 仓库成功克隆至项目的 src/teacher_model/VAC_CSLR 目录。")
+    print("提示：请确认您已将官方的 CorrNet 仓库成功克隆至项目的 src/teacher_model/CorrNet 目录。")
     print("您可以运行以下命令进行克隆：")
-    print(f"git clone https://github.com/VIPL-SLP/VAC_CSLR.git {os.path.join(TEACHER_MODEL_DIR, 'VAC_CSLR')}\n")
+    print(f"git clone https://github.com/hulianyuyy/CorrNet.git {os.path.join(TEACHER_MODEL_DIR, 'CorrNet')}\n")
     SLRModel = None
 
 
@@ -179,22 +179,15 @@ class VideoTransforms:
     """
     def __init__(self, size=224):
         self.size = size
-        self.normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
 
     def __call__(self, video_np):
         # input: (T, H, W, C) -> numpy array
-        t, h, w, c = video_np.shape
-        
-        # 将 numpy 数组转为 torch Tensor 格式，避免 opencv 库冲突
-        # video_np shape: (T, H, W, C) -> torch.Tensor，转为 (T, C, H, W)
-        video_tensor = torch.from_numpy(video_np).float() / 255.0
+        # 将 numpy 数组转为 torch Tensor 格式，shape (T, C, H, W)
+        video_tensor = torch.from_numpy(video_np).float()
         video_tensor = video_tensor.permute(0, 3, 1, 2)
         
-        # 使用 PyTorch 的插值函数缩放，彻底规避 cv2 崩溃问题
-        if h != self.size or w != self.size:
+        # 使用 PyTorch 的插值函数缩放
+        if video_tensor.shape[2] != self.size or video_tensor.shape[3] != self.size:
             video_tensor = torch.nn.functional.interpolate(
                 video_tensor, 
                 size=(self.size, self.size), 
@@ -202,14 +195,8 @@ class VideoTransforms:
                 align_corners=False
             )
             
-        # 逐帧进行归一化
-        frames = []
-        for frame_tensor in video_tensor:
-            frame_tensor = self.normalize(frame_tensor)
-            frames.append(frame_tensor)
-            
-        # 拼接成 (T, C, H, W) 格式的张量，以匹配模型 (B, T, C, H, W) 的输入期待
-        video_tensor_out = torch.stack(frames, dim=0)
+        # 官方原生归一化：x / 127.5 - 1.0
+        video_tensor_out = video_tensor / 127.5 - 1.0
         return video_tensor_out
 
 
@@ -220,7 +207,7 @@ def run_teacher_extraction():
     parser.add_argument("--video_dir", type=str, default=os.path.join(PROJECT_ROOT, "data/CSL/video"), help="物理视频目录")
     parser.add_argument("--save_feat_dir", type=str, default=os.path.join(PROJECT_ROOT, "processed/csl_daily/teacher_features"), help="特征保存路径")
     parser.add_argument("--save_logits_dir", type=str, default=os.path.join(PROJECT_ROOT, "processed/csl_daily/teacher_logits"), help="Logits保存路径")
-    parser.add_argument("--weights_path", type=str, default=os.path.join(PROJECT_ROOT, "weights/teacher/smkd_csl_daily.pt"), help="模型权重文件存放路径")
+    parser.add_argument("--weights_path", type=str, default=os.path.join(PROJECT_ROOT, "weights/teacher/smkd_csl_daily_real.pt"), help="模型权重文件存放路径")
     parser.add_argument("--batch_size", type=int, default=1, help="推荐设为1以处理长度不等的变长视频")
     parser.add_argument("--device", type=str, default="cuda", help="推理设备 (cuda/cpu)")
     args = parser.parse_args()
@@ -239,9 +226,9 @@ def run_teacher_extraction():
         sys.exit(1)
 
     # 构造 SLRModel 实例，其结构配置通常和 VAC_CSLR 中的 config.yaml 一致
-    fake_gloss_dict = {str(i): [i] for i in range(1296)}
+    fake_gloss_dict = {str(i): [i] for i in range(2001)}
     model = SLRModel(
-        num_classes=1296,       # 依据教师模型权重包，实际对应分类数为 1296
+        num_classes=2001,       # 修改为 CSL-Daily 真实的词表类别数 (2000个词 + 1个CTC Blank = 2001)
         c2d_type="resnet18",    # 经典的图像特征提取骨干网络
         conv_type=2,            # 时序一维卷积配置 (对应 2 层 Conv + 2 层 MaxPool)
         use_bn=True,
@@ -252,17 +239,24 @@ def run_teacher_extraction():
 
     # 加载预训练好的权重
     if os.path.exists(args.weights_path):
-        print(f"正在加载 SMKD 教师模型权重: {args.weights_path}")
+        print(f"正在加载 CorrNet 教师模型权重: {args.weights_path}")
         checkpoint = torch.load(args.weights_path, map_location=device)
         state_dict = checkpoint.get("model_state_dict", checkpoint)
-        # 去除 DataParallel 引入的 "module." 前缀
-        if len(state_dict) > 0 and "module." in list(state_dict.keys())[0]:
-            from collections import OrderedDict
-            new_state_dict = OrderedDict()
-            for k, v in state_dict.items():
-                new_state_dict[k.replace("module.", "")] = v
-            state_dict = new_state_dict
-        model.load_state_dict(state_dict)
+        
+        # 去除 DataParallel 引导的 "module." 前缀
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            key_name = k.replace("module.", "")
+            new_state_dict[key_name] = v
+
+        # 使用非严格模式加载，允许忽略一些次要的元数据键，但所有 3D 卷积与分类层权重都应当成功加载
+        missing_keys, unexpected_keys = model.load_state_dict(new_state_dict, strict=False)
+        print(f"权重加载完成 (非严格模式)。")
+        if len(missing_keys) > 0:
+            print(f"[提示] 未装载的模型键 (Missing keys): {missing_keys}")
+        if len(unexpected_keys) > 0:
+            print(f"[提示] Checkpoint中多余的键 (Unexpected keys): {unexpected_keys}")
     else:
         print(f"[Warning] 未能在 {args.weights_path} 找到权重文件。")
         print("提示：本工具将以随机初始化的教师模型运行，用于测试逻辑是否走通。")
@@ -345,14 +339,9 @@ def run_teacher_extraction():
                 continue
 
             # 转化为 Numpy 格式并剔除多余的 Batch 维度，保存至本地 (转回 float32 保证下游兼容性)
-            feat_numpy = feat_tensor.squeeze(0).cpu().float().numpy()  
-            logits_numpy = logits_tensor.squeeze(0).cpu().float().numpy() 
-
-            # 💡 精确 squeeze 掉多余的维度，防止 T=1 时被过度 squeeze
-            if len(feat_numpy.shape) == 3 and feat_numpy.shape[1] == 1:
-                feat_numpy = feat_numpy.squeeze(1)
-            if len(logits_numpy.shape) == 3 and logits_numpy.shape[1] == 1:
-                logits_numpy = logits_numpy.squeeze(1)
+            # 由于输入维度是 (T', B, C)，在 batch_size=1 时使用 squeeze(1) 可以安全地将 batch 维度剔除而不破坏时序维 (即使 T'=1 也是安全的)
+            feat_numpy = feat_tensor.squeeze(1).cpu().float().numpy()  
+            logits_numpy = logits_tensor.squeeze(1).cpu().float().numpy() 
 
             np.save(feat_save_path, feat_numpy)
             np.save(logits_save_path, logits_numpy)

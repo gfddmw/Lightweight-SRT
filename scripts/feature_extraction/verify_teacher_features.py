@@ -9,8 +9,8 @@ def verify_extracted_data():
     parser.add_argument("--feat_dir", type=str, default="../../processed/csl_daily/teacher_features", help="特征目录")
     parser.add_argument("--logits_dir", type=str, default="../../processed/csl_daily/teacher_logits", help="Logits目录")
     parser.add_argument("--expected_feat_dim", type=int, default=1024, help="期望的特征维度")
-    parser.add_argument("--expected_class_dim", type=int, default=1296, help="期望的分类 Logits 维度 (教师模型)")
-    parser.add_argument("--fix", action="store_true", help="是否自动修复维度异常 (Squeeze 掉多余的维度 1)")
+    parser.add_argument("--expected_class_dim", type=int, default=2001, help="期望的分类 Logits 维度 (教师模型)")
+    parser.add_argument("--fix", action="store_true", help="是否自动修复维度异常 (Squeeze 掉多余的维度 1，并删除损坏文件以便重提)")
     args = parser.parse_args()
 
     # 1. 确保路径为绝对路径
@@ -82,6 +82,13 @@ def verify_extracted_data():
             feat_arr = np.load(feat_path)
         except Exception as e:
             corrupted_feats.append((video_name, f"加载异常: {e}"))
+            if args.fix:
+                for path in [feat_path, logits_path]:
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
             continue
             
         # 5.2 验证 Logits 文件
@@ -89,6 +96,13 @@ def verify_extracted_data():
             logits_arr = np.load(logits_path)
         except Exception as e:
             corrupted_logits.append((video_name, f"加载异常: {e}"))
+            if args.fix:
+                for path in [feat_path, logits_path]:
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
             continue
 
         # 5.3 验证维度 (Shape) 与自动修复
