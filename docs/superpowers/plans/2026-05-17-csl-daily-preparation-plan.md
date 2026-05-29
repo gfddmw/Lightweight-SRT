@@ -1,12 +1,12 @@
-# CSL-Daily (SMKD 方案) 前期准备实施计划
+# CSL-Daily (CorrNet 方案) 前期准备实施计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 完成 CSL-Daily 数据集基于 SMKD 强教师方案的前期数据准备、特征提取与词表构建，为后续 CSLT 训练打下基础。
+**Goal:** 完成 CSL-Daily 数据集基于 CorrNet 强教师方案的前期数据准备、特征提取与词表构建，为后续 CSLT 训练打下基础。
 
 **Architecture:** 数据解耦并行流水线 (A-骨骼, B-教师特征, C-词表索引, D-整合验证)。
 
-**Tech Stack:** MediaPipe, SMKD (Teacher), Jieba/SentencePiece, PyTorch.
+**Tech Stack:** MediaPipe, CorrNet (Teacher), Jieba/SentencePiece, PyTorch.
 
 ---
 
@@ -31,22 +31,18 @@ bone = joint[:, :, 1:, :] - joint[:, :, neighbor_link, :]
 
 ---
 
-## Task B: SMKD 教师模型特征导出 (B同学)
+## Task B: CorrNet 教师模型特征导出 (B同学)
 
 **Files:**
-- Create: `scripts/feature_extraction/extract_smkd_teacher_features.py`
+- Clone: `src/teacher_model/CorrNet` (克隆自 https://github.com/hulianyuyy/CorrNet)
 
-- [ ] **Step 1: SMKD 教师模型环境部署与权重加载**
-配置 SMKD 官方仓库所需环境，确保能加载在 CSL-Daily 上训练好的 SOTA 权重。
+- [ ] **Step 1: CorrNet 教师模型环境部署与权重加载**
+克隆并部署 CorrNet 官方仓库环境，确保能加载在 CSL-Daily 上训练好的 SOTA 权重。
 
-- [ ] **Step 2: 编写特征与 Logits 导出工具**
-前向传播获取中间层特征 (1024D) 和最终分类 Logits。
-```python
-# 伪代码
-with torch.no_grad():
-    feat, logits = smkd_teacher(video_tensor)
-    np.save(f'teacher_features/{vid}.npy', feat.cpu().numpy())
-    np.save(f'teacher_logits/{vid}.npy', logits.cpu().numpy())
+- [ ] **Step 2: 使用官方内置工具导出特征与 Logits**
+运行 CorrNet 官方的 `main.py --phase features` 前向传播获取中间层特征 (1024D) 和最终分类 Logits (2001D)。
+```bash
+python main.py --load-weights ../../weights/teacher/smkd_csl_daily_real.pt --phase features --config configs/csl_daily.yaml --device 0
 ```
 
 - [ ] **Step 3: 时序对齐处理**

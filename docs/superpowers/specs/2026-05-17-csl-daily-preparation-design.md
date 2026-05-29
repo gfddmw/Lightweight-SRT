@@ -1,7 +1,7 @@
-# CSL-Daily (SMKD 教师方案) 前期准备设计文档
+# CSL-Daily (CorrNet 教师方案) 前期准备设计文档
 
 ## 1. 目标概述
-本方案旨在为 CSL-Daily 数据集建立基于 SMKD (Selective Multi-Teacher Knowledge Distillation) 的蒸馏前期准备流程。教师模型将提供高质量的视觉语义特征和时序 Logits，引导轻量级 ST-GCN 学生模型学习连续手语翻译能力。
+本方案旨在为 CSL-Daily 数据集建立基于 CorrNet 强教师的蒸馏前期准备流程。教师模型将提供高质量的视觉语义特征和时序 Logits，引导轻量级 ST-GCN 学生模型学习连续手语翻译能力。
 
 ## 2. 准备阶段详解
 
@@ -12,13 +12,12 @@
     - 处理中文句子，使用 `jieba` 进行预分词，建立 `word_to_id` 词典（包含 `<PAD>, <BOS>, <EOS>, <UNK>`）。
 - **划分验证**: 提取官方 `train/dev/test` 列表，生成项目专用的 `dataset_splits.json`。
 
-### B. 教师特征提取 (SMKD Teacher Features)
-- **模型获取**: 部署预训练的 SMKD 教师模型（通常包含视觉编码器和时序增强模块）。
-- **特征提取脚本**: 编写 `scripts/feature_extraction/extract_smkd_teacher.py`。
+### B. 教师特征提取 (CorrNet Teacher Features)
+- **模型获取**: 部署预训练的 CorrNet 教师模型（基于 3D ResNet18 + CorrBlock + BiLSTM 架构）。
+- **特征提取脚本**: 克隆官方 `CorrNet` 仓库，并在 `src/teacher_model/CorrNet` 中直接运行其内置的特征导出任务。
 - **输出格式**:
-    - **Visual Features**: `[T_teacher, 1024]` (或对应维度)，保存为 `.npy`。
-    - **Temporal Logits**: `[T_teacher, gloss_vocab_size]`，用于 CTC 蒸馏。
-    - **Selection Masks (可选)**: 如果使用 SMKD 的选择性权重，也需一并保存。
+    - **Visual Features**: `[T_teacher, 1024]`，保存为 `.npy`。
+    - **Temporal Logits**: `[T_teacher, 2001]`（对应 2000 个 CSL-Daily 词汇 + 1 个 CTC Blank），用于 CTC 蒸馏，保存为 `.npy`。
 
 ### C. 学生骨骼点提取 (Skeleton Stream)
 - **多流生成**:
