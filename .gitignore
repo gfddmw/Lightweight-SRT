@@ -20,7 +20,6 @@ scripts/presentation
 /visualizations
 
 # 忽略数据文件夹 (如果之前没加)
-data/
 .idea/
 
 # 忽略生成的中间特征（体积大，可再生）

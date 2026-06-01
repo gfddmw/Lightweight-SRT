@@ -1,0 +1,82 @@
+{
+  "S006941_P0007_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S006941_P0007_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S006941_P0007_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S006941_P0007_T00.npy",
+    "gloss": "文 艺术 晚上 会议 他 自己 跳舞 多 好",
+    "sentence": "文艺 晚会 上 他 把 自己 的 表演 很 出色 。",
+    "subset": "train"
+  },
+  "S006439_P0000_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S006439_P0000_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S006439_P0000_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S006439_P0000_T00.npy",
+    "gloss": "足球 比赛 爸爸 带 我 看",
+    "sentence": "爸爸 带 我 去 看 足球 比赛 。",
+    "subset": "train"
+  },
+  "S002618_P0000_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S002618_P0000_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S002618_P0000_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S002618_P0000_T00.npy",
+    "gloss": "这 考试 规定 草稿 拿 不行",
+    "sentence": "这 场 考试 原则 上 不许 自带 草稿纸 。",
+    "subset": "train"
+  },
+  "S003584_P0002_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S003584_P0002_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S003584_P0002_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S003584_P0002_T00.npy",
+    "gloss": "这 孩子 读书 不喜欢",
+    "sentence": "这个 孩子 不 喜欢 去 上学 。",
+    "subset": "train"
+  },
+  "S005408_P0009_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S005408_P0009_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S005408_P0009_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S005408_P0009_T00.npy",
+    "gloss": "外国 快递 比 一般 快递 钱 贵",
+    "sentence": "国际 快递 比 普通 快递 费用 更 多 。",
+    "subset": "train"
+  },
+  "S000579_P0008_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S000579_P0008_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S000579_P0008_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S000579_P0008_T00.npy",
+    "gloss": "我们 年 1 见面 没有",
+    "sentence": "我们 一 年 没 见面 了 吧 ？",
+    "subset": "train"
+  },
+  "S006028_P0006_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S006028_P0006_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S006028_P0006_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S006028_P0006_T00.npy",
+    "gloss": "到 这 不 熟悉 河 游泳 比较 危险",
+    "sentence": "到 不 熟悉 情况 的 江河 里 去 游泳 是 很 危险 的 。",
+    "subset": "train"
+  },
+  "S007368_P0007_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S007368_P0007_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S007368_P0007_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S007368_P0007_T00.npy",
+    "gloss": "来 看 看 这 词语 词语 组 1 句子",
+    "sentence": "来 试试 把 这些 词 组成 一个 句子 。",
+    "subset": "train"
+  },
+  "S001944_P0000_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S001944_P0000_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S001944_P0000_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S001944_P0000_T00.npy",
+    "gloss": "谁 还 不 怀疑 我 国 经济 发展 得 好",
+    "sentence": "谁 也 不 会 怀疑 改革 开放 以来 我国 经济 建设 取得 的 成就 。",
+    "subset": "train"
+  },
+  "S000143_P0008_T00": {
+    "skeleton": "processed/csl_daily/skeletons/S000143_P0008_T00.npy",
+    "teacher_feat": "processed/csl_daily/teacher_features/S000143_P0008_T00.npy",
+    "teacher_logits": "processed/csl_daily/teacher_logits/S000143_P0008_T00.npy",
+    "gloss": "小 王 衣服 美丽",
+    "sentence": "小王 的 衣服 太 漂亮 了 。",
+    "subset": "train"
+  }
+}

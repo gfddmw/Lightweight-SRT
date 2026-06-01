@@ -1,0 +1,21 @@
+{
+  "dataset_info": {
+    "total_videos": 20654,
+    "train_videos": 18401,
+    "dev_videos": 1077,
+    "test_videos": 1176
+  },
+  "gloss_stats": {
+    "total_glosses": 7387,
+    "avg_gloss_length": 7.3058487460056165
+  },
+  "sentence_stats": {
+    "total_sentences": 7379,
+    "avg_sentence_length": 10.507504599593299
+  },
+  "file_availability": {
+    "skeleton_available": 0,
+    "teacher_feat_available": 0,
+    "teacher_logits_available": 0
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "total_samples": 20654,
+  "gloss_vocab_size": 2004,
+  "text_word_vocab_size": 7480,
+  "text_char_vocab_size": 2290,
+  "train_size": 18401,
+  "dev_size": 1077,
+  "test_size": 1176
+}
