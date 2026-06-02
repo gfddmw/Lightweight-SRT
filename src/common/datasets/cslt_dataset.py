@@ -1,295 +1,232 @@
-"""
-PyTorch Dataset and collate_fn for CSL-Daily continuous sign language translation.
-
-The loader is schema-tolerant so it can work with either:
-  - Task C's global index JSON, containing explicit paths and token IDs.
-  - The raw CSL-Daily annotation JSON plus default processed directories.
-
-Returned sample keys are stable; missing optional fields are represented by
-empty tensors/strings rather than fabricated data.
-"""
-
-from __future__ import annotations
-
 import json
+import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
-
 import numpy as np
 import torch
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import Dataset
+import torch.utils.data as data_utl
 
+def _find_project_root():
+    """自动查找项目根目录"""
+    current = Path(__file__).resolve()
+    for parent in [current] + list(current.parents):
+        if (parent / "processed").exists():
+            return parent
+    return Path(__file__).resolve().parents[3]
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = _find_project_root()
 
-
-def _resolve(path: str | Path, root: Path = PROJECT_ROOT) -> Path:
-    path = Path(path)
-    if path.is_absolute():
-        return path
-    return (root / path).resolve()
-
-
-def _load_json(path: Path) -> Any:
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _normalize_records(raw: Any, subset: Optional[str]) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
-    if isinstance(raw, dict):
-        iterator = raw.items()
-    elif isinstance(raw, list):
-        iterator = enumerate(raw)
-    else:
-        raise ValueError(f"Unsupported index JSON root type: {type(raw)!r}")
-
-    for key, value in iterator:
-        if not isinstance(value, dict):
-            continue
-        item_subset = value.get("subset", value.get("split"))
-        if subset is not None and item_subset != subset:
-            continue
-        vid = value.get("vid", value.get("id", value.get("name", key)))
-        record = dict(value)
-        record["vid"] = str(vid)
-        records.append(record)
-    return records
-
-
-def _first_present(mapping: Mapping[str, Any], keys: Sequence[str], default: Any = None) -> Any:
-    for key in keys:
-        if key in mapping and mapping[key] is not None:
-            return mapping[key]
-    return default
-
-
-def _ids_from_value(value: Any, vocab: Optional[Mapping[str, int]]) -> List[int]:
-    if value is None:
-        return []
-    if isinstance(value, torch.Tensor):
-        return [int(x) for x in value.detach().cpu().view(-1).tolist()]
-    if isinstance(value, np.ndarray):
-        return [int(x) for x in value.reshape(-1).tolist()]
-    if isinstance(value, (list, tuple)):
-        return [int(x) for x in value]
-    if isinstance(value, str):
-        if vocab is None:
-            return []
-        return [int(vocab[token]) for token in value.split() if token in vocab]
-    return []
-
-
-def _load_vocab(path: Optional[str | Path]) -> Optional[Dict[str, int]]:
-    if not path:
-        return None
-    raw = _load_json(_resolve(path))
-    if isinstance(raw, dict):
-        if all(isinstance(v, int) for v in raw.values()):
-            return {str(k): int(v) for k, v in raw.items()}
-        for key in ("token_to_id", "word2id", "gloss2id", "text2id", "stoi"):
-            value = raw.get(key)
-            if isinstance(value, dict):
-                return {str(k): int(v) for k, v in value.items()}
-    raise ValueError(f"Cannot parse vocab file as token->id mapping: {path}")
-
-
-def _load_npy_float32(path: Path) -> np.ndarray:
-    return np.asarray(np.load(path, mmap_mode="r", allow_pickle=False), dtype=np.float32)
-
-
-def _to_stgcn_tensor(array: np.ndarray) -> torch.Tensor:
-    """Convert [T,V,C] to [C,T,V,1]."""
-    if array.ndim != 3:
-        raise ValueError(f"Expected skeleton stream [T,V,C], got {array.shape}")
-    return torch.from_numpy(np.array(array.transpose(2, 0, 1), dtype=np.float32, copy=True)).unsqueeze(-1)
-
-
-class CSLTDataset(Dataset):
-    def __init__(
-        self,
-        index_json: str | Path = "scripts/data_prep/generate_csl_daily_splits.json",
-        subset: Optional[str] = None,
-        skeleton_dir: str | Path = "processed/csl_daily/skeletons",
-        teacher_feature_dir: str | Path = "processed/csl_daily/teacher_features",
-        teacher_logits_dir: str | Path = "processed/csl_daily/teacher_logits",
-        gloss_vocab_path: Optional[str | Path] = None,
-        text_vocab_path: Optional[str | Path] = None,
-        require_files: bool = True,
-        use_mmap: bool = True,
-    ) -> None:
-        self.index_json = _resolve(index_json)
-        self.skeleton_dir = _resolve(skeleton_dir)
-        self.teacher_feature_dir = _resolve(teacher_feature_dir)
-        self.teacher_logits_dir = _resolve(teacher_logits_dir)
-        self.gloss_vocab = _load_vocab(gloss_vocab_path)
-        self.text_vocab = _load_vocab(text_vocab_path)
-        self.require_files = require_files
-        self.use_mmap = use_mmap
-
-        if not self.index_json.exists():
-            raise FileNotFoundError(
-                f"Index JSON not found: {self.index_json}. "
-                "Download/produce CSL-Daily annotations or Task C's global index first."
-            )
-
-        records = _normalize_records(_load_json(self.index_json), subset)
-        self.samples: List[Dict[str, Any]] = []
-        missing: List[str] = []
-        for record in records:
-            sample = self._prepare_record(record)
-            missing_paths = [str(path) for path in self._required_paths(sample) if not path.exists()]
-            if missing_paths:
-                missing.append(f"{sample['vid']}: {', '.join(missing_paths)}")
-                if require_files:
-                    continue
-            self.samples.append(sample)
-
-        self.missing_files = missing
-        if require_files and records and not self.samples:
-            preview = "\n".join(missing[:5])
-            raise FileNotFoundError(
-                "No usable CSL-Daily samples found because required .npy files are missing. "
-                f"First missing examples:\n{preview}"
-            )
-
-    def _prepare_record(self, record: Mapping[str, Any]) -> Dict[str, Any]:
-        vid = str(record["vid"])
-        skeleton_path = _first_present(record, ("skeleton_path", "skeleton", "joints_path"))
-        teacher_feature_path = _first_present(record, ("teacher_feature_path", "feature_path", "features_path"))
-        teacher_logits_path = _first_present(record, ("teacher_logits_path", "logits_path"))
-
-        return {
-            "vid": vid,
-            "skeleton_path": _resolve(skeleton_path) if skeleton_path else self.skeleton_dir / f"{vid}.npy",
-            "teacher_feature_path": _resolve(teacher_feature_path)
-            if teacher_feature_path
-            else self.teacher_feature_dir / f"{vid}.npy",
-            "teacher_logits_path": _resolve(teacher_logits_path)
-            if teacher_logits_path
-            else self.teacher_logits_dir / f"{vid}.npy",
-            "gloss": _first_present(record, ("gloss", "glosses", "gloss_sequence"), ""),
-            "text": _first_present(record, ("text", "translation", "chinese", "sentence"), ""),
-            "gloss_ids": _ids_from_value(_first_present(record, ("gloss_ids", "gloss_id")), self.gloss_vocab),
-            "text_ids": _ids_from_value(_first_present(record, ("text_ids", "text_id", "translation_ids")), self.text_vocab),
-            "raw": dict(record),
-        }
-
-    @staticmethod
-    def _required_paths(sample: Mapping[str, Any]) -> List[Path]:
-        return [
-            Path(sample["skeleton_path"]),
-            Path(sample["teacher_feature_path"]),
-            Path(sample["teacher_logits_path"]),
-        ]
-
-    def __len__(self) -> int:
-        return len(self.samples)
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        sample = self.samples[idx]
-        skeleton = _load_npy_float32(Path(sample["skeleton_path"]))
-        if skeleton.ndim != 3:
-            raise ValueError(f"{sample['vid']} skeleton must be [T,V,C], got {skeleton.shape}")
-
-        if skeleton.shape[-1] >= 9:
-            joints = skeleton[..., 0:3]
-            bones = skeleton[..., 3:6]
-            motion = skeleton[..., 6:9]
-        elif skeleton.shape[-1] >= 3:
-            joints = skeleton[..., 0:3]
-            bones = np.zeros_like(joints)
-            motion = np.zeros_like(joints)
+class CSLTDataset(data_utl.Dataset):
+    """
+    用于连续手语识别与翻译 (CSLT) 的 Dataset。
+    
+    返回每个视频的变长多流特征 [Joint, Bone, Motion] 及其对应的教师模型监督信号
+    与文本标签。该 Dataset 必须配合 `cslt_collate_fn` 一起使用以实现变长 Batch 级的 Padding。
+    """
+    def __init__(self, 
+                 global_index_path="data/csl_daily/vocabularies/global_index.json", 
+                 subset="train", 
+                 in_channels=3,
+                 **kwargs):
+        super().__init__()
+        
+        # 路径解析
+        if not os.path.isabs(global_index_path):
+            self.global_index_path = PROJECT_ROOT / global_index_path
         else:
-            raise ValueError(f"{sample['vid']} skeleton channel dim must be >=3, got {skeleton.shape}")
-
-        teacher_features = _load_npy_float32(Path(sample["teacher_feature_path"]))
-        teacher_logits = _load_npy_float32(Path(sample["teacher_logits_path"]))
-        if teacher_features.ndim == 1:
-            teacher_features = teacher_features[None, :]
-        if teacher_logits.ndim == 1:
-            teacher_logits = teacher_logits[None, :]
-
-        gloss_ids = torch.tensor(sample["gloss_ids"], dtype=torch.long)
-        text_ids = torch.tensor(sample["text_ids"], dtype=torch.long)
-
+            self.global_index_path = Path(global_index_path)
+            
+        if not self.global_index_path.exists():
+            raise FileNotFoundError(f"未找到全局数据索引文件: {self.global_index_path}")
+            
+        with open(self.global_index_path, 'r', encoding='utf-8') as f:
+            self.global_index = json.load(f)
+            
+        # 根据子集（train / dev / test）筛选样本
+        self.sample_ids = [vid for vid, meta in self.global_index.items() if meta.get('subset') == subset]
+        self.subset = subset
+        self.in_channels = in_channels
+        
+    def __len__(self):
+        return len(self.sample_ids)
+        
+    def _load_npy(self, path):
+        """加载 numpy 特征文件"""
+        abs_path = PROJECT_ROOT / path if not os.path.isabs(path) else Path(path)
+        if not abs_path.exists():
+            raise FileNotFoundError(f"未找到特征数据文件: {abs_path}")
+        return np.load(abs_path, allow_pickle=True).astype(np.float32)
+        
+    def __getitem__(self, idx):
+        vid_id = self.sample_ids[idx]
+        meta = self.global_index[vid_id]
+        
+        # 1. 加载骨架多流数据（形状为 [T, 42, 9]）
+        skeleton_path = meta['skeleton']
+        skeleton_data = self._load_npy(skeleton_path) # [T, 42, 9]
+        
+        # 分离多流数据并转置为 [C, T, V] = [3, T, 42]
+        joints = skeleton_data[:, :, 0:3].transpose(2, 0, 1) # [3, T, 42]
+        bones = skeleton_data[:, :, 3:6].transpose(2, 0, 1)  # [3, T, 42]
+        motion = skeleton_data[:, :, 6:9].transpose(2, 0, 1) # [3, T, 42]
+        
+        # 如果只要 2D 坐标（例如只提取 x 和 y，剔除 z），做截断
+        if self.in_channels == 2:
+            joints = joints[:2]
+            bones = bones[:2]
+            motion = motion[:2]
+            
+        # 2. 加载强教师特征与 logits 监督信号
+        teacher_feat = self._load_npy(meta['teacher_feat']) # [T_t, 1024]
+        teacher_logits = self._load_npy(meta['teacher_logits']) # [T_t, 2001]
+        
+        # 3. 获取词与字符 IDs 标注
+        gloss_ids = meta['gloss_ids']
+        sentence_ids_word = meta['sentence_ids_word']
+        sentence_ids_char = meta['sentence_ids_char']
+        
         return {
-            "vid": sample["vid"],
-            "joints": _to_stgcn_tensor(joints),
-            "bones": _to_stgcn_tensor(bones),
-            "motion": _to_stgcn_tensor(motion),
-            "input_length": torch.tensor(joints.shape[0], dtype=torch.long),
-            "teacher_features": torch.from_numpy(np.array(teacher_features, dtype=np.float32, copy=True)),
-            "teacher_feature_length": torch.tensor(teacher_features.shape[0], dtype=torch.long),
-            "teacher_logits": torch.from_numpy(np.array(teacher_logits, dtype=np.float32, copy=True)),
-            "teacher_logits_length": torch.tensor(teacher_logits.shape[0], dtype=torch.long),
-            "gloss_ids": gloss_ids,
-            "gloss_length": torch.tensor(gloss_ids.numel(), dtype=torch.long),
-            "text_ids": text_ids,
-            "text_length": torch.tensor(text_ids.numel(), dtype=torch.long),
-            "gloss": sample["gloss"],
-            "text": sample["text"],
-            "paths": {
-                "skeleton": str(sample["skeleton_path"]),
-                "teacher_features": str(sample["teacher_feature_path"]),
-                "teacher_logits": str(sample["teacher_logits_path"]),
-            },
+            "vid": vid_id,
+            "joints": torch.from_numpy(joints),
+            "bones": torch.from_numpy(bones),
+            "motion": torch.from_numpy(motion),
+            "teacher_feat": torch.from_numpy(teacher_feat),
+            "teacher_logits": torch.from_numpy(teacher_logits),
+            "gloss_ids": torch.tensor(gloss_ids, dtype=torch.long),
+            "sentence_ids_word": torch.tensor(sentence_ids_word, dtype=torch.long),
+            "sentence_ids_char": torch.tensor(sentence_ids_char, dtype=torch.long),
         }
 
-
-def _pad_time_stgcn(tensors: Sequence[torch.Tensor]) -> torch.Tensor:
-    """Pad [C,T,V,M] tensors along T and stack to [B,C,T,V,M]."""
-    max_t = max(int(t.shape[1]) for t in tensors)
-    padded: List[torch.Tensor] = []
-    for tensor in tensors:
-        out = tensor.new_zeros((tensor.shape[0], max_t, tensor.shape[2], tensor.shape[3]))
-        out[:, : tensor.shape[1]] = tensor
-        padded.append(out)
-    return torch.stack(padded, dim=0)
-
-
-def _pad_time_2d(tensors: Sequence[torch.Tensor]) -> torch.Tensor:
-    """Pad [T,D] tensors to [B,T,D]."""
-    max_t = max(int(t.shape[0]) for t in tensors)
-    max_d = max(int(t.shape[1]) for t in tensors)
-    padded: List[torch.Tensor] = []
-    for tensor in tensors:
-        out = tensor.new_zeros((max_t, max_d))
-        out[: tensor.shape[0], : tensor.shape[1]] = tensor
-        padded.append(out)
-    return torch.stack(padded, dim=0)
-
-
-def cslt_collate_fn(batch: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    if not batch:
-        raise ValueError("Cannot collate an empty batch")
-
-    gloss_ids = [item["gloss_ids"] for item in batch]
-    text_ids = [item["text_ids"] for item in batch]
-
+def cslt_collate_fn(batch):
+    """
+    变长手语序列的 Batch padding 整理函数。
+    将骨骼、教师特征、中文及 Gloss 用 0 (或 <PAD>) padding 至 Batch 内最大长度。
+    """
+    input_lengths = []
+    teacher_lengths = []
+    gloss_lengths = []
+    word_lengths = []
+    char_lengths = []
+    
+    for item in batch:
+        input_lengths.append(item['joints'].shape[1]) # T
+        teacher_lengths.append(item['teacher_feat'].shape[0]) # T_t
+        gloss_lengths.append(len(item['gloss_ids']))
+        word_lengths.append(len(item['sentence_ids_word']))
+        char_lengths.append(len(item['sentence_ids_char']))
+        
+    max_T = max(input_lengths)
+    max_T_t = max(teacher_lengths)
+    max_G = max(gloss_lengths)
+    max_W = max(word_lengths)
+    max_C = max(char_lengths)
+    
+    batch_size = len(batch)
+    V = batch[0]['joints'].shape[2] # 42 关节数
+    C = batch[0]['joints'].shape[0] # 通道数
+    
+    # 1. 零填充骨架流与教师监督信号
+    padded_joints = torch.zeros(batch_size, C, max_T, V)
+    padded_bones = torch.zeros(batch_size, C, max_T, V)
+    padded_motion = torch.zeros(batch_size, C, max_T, V)
+    
+    padded_teacher_feats = torch.zeros(batch_size, max_T_t, 1024)
+    padded_teacher_logits = torch.zeros(batch_size, max_T_t, 2001)
+    
+    # 2. 用 ID 0 (<PAD>) 填充文本和 Gloss 标记序列
+    padded_gloss_ids = torch.zeros(batch_size, max_G, dtype=torch.long)
+    padded_word_ids = torch.zeros(batch_size, max_W, dtype=torch.long)
+    padded_char_ids = torch.zeros(batch_size, max_C, dtype=torch.long)
+    
+    vids = []
+    for i, item in enumerate(batch):
+        vids.append(item['vid'])
+        
+        # 填充多流骨架点
+        t = input_lengths[i]
+        padded_joints[i, :, :t, :] = item['joints']
+        padded_bones[i, :, :t, :] = item['bones']
+        padded_motion[i, :, :t, :] = item['motion']
+        
+        # 填充教师层
+        t_t = teacher_lengths[i]
+        padded_teacher_feats[i, :t_t, :] = item['teacher_feat']
+        padded_teacher_logits[i, :t_t, :] = item['teacher_logits']
+        
+        # 填充文本映射
+        padded_gloss_ids[i, :gloss_lengths[i]] = item['gloss_ids']
+        padded_word_ids[i, :word_lengths[i]] = item['sentence_ids_word']
+        padded_char_ids[i, :char_lengths[i]] = item['sentence_ids_char']
+        
     return {
-        "vid": [item["vid"] for item in batch],
-        "joints": _pad_time_stgcn([item["joints"] for item in batch]),
-        "bones": _pad_time_stgcn([item["bones"] for item in batch]),
-        "motion": _pad_time_stgcn([item["motion"] for item in batch]),
-        "input_lengths": torch.stack([item["input_length"] for item in batch]),
-        "teacher_features": _pad_time_2d([item["teacher_features"] for item in batch]),
-        "teacher_feature_lengths": torch.stack([item["teacher_feature_length"] for item in batch]),
-        "teacher_logits": _pad_time_2d([item["teacher_logits"] for item in batch]),
-        "teacher_logits_lengths": torch.stack([item["teacher_logits_length"] for item in batch]),
-        "gloss_ids": pad_sequence(gloss_ids, batch_first=True, padding_value=0)
-        if any(x.numel() for x in gloss_ids)
-        else torch.zeros((len(batch), 0), dtype=torch.long),
-        "gloss_lengths": torch.stack([item["gloss_length"] for item in batch]),
-        "text_ids": pad_sequence(text_ids, batch_first=True, padding_value=0)
-        if any(x.numel() for x in text_ids)
-        else torch.zeros((len(batch), 0), dtype=torch.long),
-        "text_lengths": torch.stack([item["text_length"] for item in batch]),
-        "gloss": [item["gloss"] for item in batch],
-        "text": [item["text"] for item in batch],
-        "paths": [item["paths"] for item in batch],
+        "vids": vids,
+        "joints": padded_joints.unsqueeze(-1), # [B, C, T, V, 1] 兼容标准 ST-GCN 多流输入
+        "bones": padded_bones.unsqueeze(-1),   # [B, C, T, V, 1]
+        "motion": padded_motion.unsqueeze(-1), # [B, C, T, V, 1]
+        "input_lengths": torch.tensor(input_lengths, dtype=torch.long),
+        "teacher_feats": padded_teacher_feats,
+        "teacher_logits": padded_teacher_logits,
+        "teacher_lengths": torch.tensor(teacher_lengths, dtype=torch.long),
+        "gloss_ids": padded_gloss_ids,
+        "gloss_lengths": torch.tensor(gloss_lengths, dtype=torch.long),
+        "sentence_ids_word": padded_word_ids,
+        "sentence_ids_char": padded_char_ids,
+        "word_lengths": torch.tensor(word_lengths, dtype=torch.long),
+        "char_lengths": torch.tensor(char_lengths, dtype=torch.long),
     }
 
+if __name__ == '__main__':
+    import sys
+    
+    # Windows 编码修复，防止在 GBK 控制台打印 UTF-8 或是 Unicode 报错，并开启行缓冲确保实时输出
+    if sys.platform == "win32":
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', line_buffering=True)
 
-__all__ = ["CSLTDataset", "cslt_collate_fn"]
+    print("=" * 60)
+    print("开始对 CSLTDataset 和 cslt_collate_fn 进行读取测试...")
+    print("=" * 60)
+    
+    from torch.utils.data import DataLoader
+    
+    try:
+        # 1. 实例化 Dataset
+        dataset = CSLTDataset(
+            global_index_path="data/csl_daily/vocabularies/global_index.json",
+            subset="train",
+            in_channels=3
+        )
+        print(f"成功加载 CSLTDataset，总计 {len(dataset)} 个训练样本。")
+        
+        # 2. 实例化 DataLoader
+        dataloader = DataLoader(
+            dataset,
+            batch_size=4,
+            shuffle=True,
+            collate_fn=cslt_collate_fn
+        )
+        
+        # 3. 提取第一个批次
+        batch = next(iter(dataloader))
+        
+        print("\n第一个 Batch 数据维度校验:")
+        print(f"  - 样本 VIDs: {batch['vids']}")
+        print(f"  - joints 形状 (B, C, T, V, 1): {batch['joints'].shape}")
+        print(f"  - bones 形状  (B, C, T, V, 1): {batch['bones'].shape}")
+        print(f"  - motion 形状 (B, C, T, V, 1): {batch['motion'].shape}")
+        print(f"  - input_lengths  (B): {batch['input_lengths'].tolist()}")
+        print(f"  - teacher_feats  (B, T_t, 1024): {batch['teacher_feats'].shape}")
+        print(f"  - teacher_logits (B, T_t, 2001): {batch['teacher_logits'].shape}")
+        print(f"  - teacher_lengths(B): {batch['teacher_lengths'].tolist()}")
+        print(f"  - gloss_ids      (B, G): {batch['gloss_ids'].shape}")
+        print(f"  - gloss_lengths  (B): {batch['gloss_lengths'].tolist()}")
+        print(f"  - word_lengths   (B): {batch['word_lengths'].tolist()}")
+        print(f"  - char_lengths   (B): {batch['char_lengths'].tolist()}")
+        
+        print("\n所有通道与时序 Padding 校验成功！数据管线完全就绪。")
+        print("=" * 60)
+        
+    except Exception as e:
+        print(f"测试遇到异常: {str(e)}")
+        import traceback
+        traceback.print_exc()

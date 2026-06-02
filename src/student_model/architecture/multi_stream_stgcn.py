@@ -69,11 +69,17 @@ class MultiStreamSTGCN(nn.Module):
         self.fusion_weights = nn.Parameter(torch.ones(3))
         self.num_class = num_class
 
-    def forward(self, joints=None, bones=None, motion=None, data=None):
+    def forward(self, joints=None, bones=None, motion=None, data=None, return_sequence=False):
         # 单流兼容
         if data is not None:
-            return self.joint_net(data)
+            return self.joint_net(data, return_sequence=return_sequence)
         
+        if return_sequence:
+            feat_j = self.joint_net(joints, return_sequence=True)
+            feat_b = self.bone_net(bones, return_sequence=True)
+            feat_m = self.motion_net(motion, return_sequence=True)
+            return torch.cat([feat_j, feat_b, feat_m], dim=-1)
+
         # 多流前向
         out_j = self.joint_net(joints)
         out_b = self.bone_net(bones)
@@ -85,10 +91,19 @@ class MultiStreamSTGCN(nn.Module):
         
         return fused, (out_j, out_b, out_m)  # 返回分支 logits 用于辅助 Loss
 
-    def extract_feature(self, joints=None, bones=None, motion=None, data=None):
+    def extract_feature(self, joints=None, bones=None, motion=None, data=None, return_sequence=False):
         if data is not None:
+            if return_sequence:
+                _, feat = self.joint_net.extract_feature(data, return_sequence=True)
+                return feat
             return self.joint_net.extract_feature(data)
         
+        if return_sequence:
+            _, feat_j = self.joint_net.extract_feature(joints, return_sequence=True)
+            _, feat_b = self.bone_net.extract_feature(bones, return_sequence=True)
+            _, feat_m = self.motion_net.extract_feature(motion, return_sequence=True)
+            return torch.cat([feat_j, feat_b, feat_m], dim=-1)
+
         # 多流特征提取
         out_j, feat_j = self.joint_net.extract_feature(joints)
         out_b, feat_b = self.bone_net.extract_feature(bones)

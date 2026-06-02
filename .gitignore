@@ -18,6 +18,7 @@ android/script
 /中期答辩
 scripts/presentation
 /visualizations
+/data
 
 # 忽略数据文件夹 (如果之前没加)
 .idea/

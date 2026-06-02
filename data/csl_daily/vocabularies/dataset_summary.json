@@ -14,8 +14,8 @@
     "avg_sentence_length": 10.507504599593299
   },
   "file_availability": {
-    "skeleton_available": 0,
-    "teacher_feat_available": 0,
-    "teacher_logits_available": 0
+    "skeleton_available": 20654,
+    "teacher_feat_available": 20654,
+    "teacher_logits_available": 20654
   }
 }

@@ -132,7 +132,7 @@ class Model(nn.Module):
         # fcn for prediction
         self.fcn = nn.Conv2d(self.channel_cfg[-1], num_class, kernel_size=1)
 
-    def forward(self, x):
+    def forward(self, x, return_sequence=False):
 
         # data normalization
         N, C, T, V, M = x.size()
@@ -146,6 +146,14 @@ class Model(nn.Module):
         # forwad
         for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
             x, _ = gcn(x, self.A * importance)
+
+        if return_sequence:
+            x = F.avg_pool2d(x, (1, x.size(3)))
+            C_out = x.size(1)
+            T_out = x.size(2)
+            x = x.view(N, M, C_out, T_out).mean(dim=1)
+            x = x.permute(0, 2, 1).contiguous()
+            return x
 
         # global pooling
         x = F.avg_pool2d(x, x.size()[2:])
@@ -157,7 +165,7 @@ class Model(nn.Module):
 
         return x
 
-    def extract_feature(self, x):
+    def extract_feature(self, x, return_sequence=False):
 
         # data normalization
         N, C, T, V, M = x.size()
@@ -171,6 +179,16 @@ class Model(nn.Module):
         # forwad
         for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
             x, _ = gcn(x, self.A * importance)
+
+        if return_sequence:
+            x_pool = F.avg_pool2d(x, (1, x.size(3)))
+            C_out = x_pool.size(1)
+            T_out = x_pool.size(2)
+            feature_sequence = x_pool.view(N, M, C_out, T_out).mean(dim=1).permute(0, 2, 1).contiguous()
+            
+            output = self.fcn(x_pool)
+            logits_output = output.view(N, M, -1, T_out).mean(dim=1).permute(0, 2, 1).contiguous()
+            return logits_output, feature_sequence
 
         _, c, t, v = x.size()
         feature = x.view(N, M, c, t, v).permute(0, 2, 3, 4, 1)

@@ -30,8 +30,19 @@ _os.close(_null_fd)
 # 用原始 fd 创建 Python 文件对象，供 logging 使用
 _py_stderr = open(_orig_stderr_fd, 'w', encoding='utf-8', closefd=False)
 
+# 注册异常钩子，确保 Python 报错能输出到原始 stderr，而不是被 /dev/null 吞掉
+def _custom_excepthook(exctype, value, tb):
+    import traceback
+    traceback.print_exception(exctype, value, tb, file=_py_stderr)
+_sys.excepthook = _custom_excepthook
+
 _os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 _os.environ['GLOG_minloglevel'] = '3'
+_os.environ["OMP_NUM_THREADS"] = "1"
+_os.environ["MKL_NUM_THREADS"] = "1"
+_os.environ["OPENBLAS_NUM_THREADS"] = "1"
+_os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+_os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -45,6 +56,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import cv2
 import numpy as np
 import mediapipe as mp
+import mediapipe.python.solutions.holistic as mp_holistic
+import mediapipe.python.solutions.hands as mp_hands
 from tqdm import tqdm
 
 # ══════ logging 使用原始 fd，正常输出到控制台 ══════
@@ -112,27 +125,34 @@ class SkeletonExtractor:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             return None
-        holistic = mp.solutions.holistic.Holistic(
-            static_image_mode=False, model_complexity=1,
-            smooth_landmarks=True, enable_segmentation=False,
-            min_detection_confidence=self.min_detection_confidence,
-            min_tracking_confidence=self.min_tracking_confidence,
-        )
         joints_list: List[np.ndarray] = []
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            r = holistic.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            left  = np.zeros((21, 3), dtype=np.float32)
-            right = np.zeros((21, 3), dtype=np.float32)
-            if r.left_hand_landmarks:
-                left = np.array([[l.x, l.y, l.z] for l in r.left_hand_landmarks.landmark], dtype=np.float32)
-            if r.right_hand_landmarks:
-                right = np.array([[l.x, l.y, l.z] for l in r.right_hand_landmarks.landmark], dtype=np.float32)
-            joints_list.append(np.concatenate([left, right], axis=0))
-        cap.release()
-        holistic.close()
+        try:
+            with mp_holistic.Holistic(
+                static_image_mode=False, model_complexity=1,
+                smooth_landmarks=True, enable_segmentation=False,
+                min_detection_confidence=self.min_detection_confidence,
+                min_tracking_confidence=self.min_tracking_confidence,
+            ) as holistic:
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    # Resize to speed up without losing relative accuracy
+                    h, w = frame.shape[:2]
+                    max_dim = 480
+                    if max(h, w) > max_dim:
+                        scale = max_dim / max(h, w)
+                        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                    r = holistic.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    left  = np.zeros((21, 3), dtype=np.float32)
+                    right = np.zeros((21, 3), dtype=np.float32)
+                    if r.left_hand_landmarks:
+                        left = np.array([[l.x, l.y, l.z] for l in r.left_hand_landmarks.landmark], dtype=np.float32)
+                    if r.right_hand_landmarks:
+                        right = np.array([[l.x, l.y, l.z] for l in r.right_hand_landmarks.landmark], dtype=np.float32)
+                    joints_list.append(np.concatenate([left, right], axis=0))
+        finally:
+            cap.release()
         if not joints_list:
             return None
         return np.stack(joints_list, axis=0).astype(np.float32)
@@ -141,21 +161,28 @@ class SkeletonExtractor:
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             return None
-        hands = mp.solutions.hands.Hands(
-            static_image_mode=False, max_num_hands=2,
-            min_detection_confidence=self.min_detection_confidence,
-            min_tracking_confidence=self.min_tracking_confidence,
-        )
         joints_list: List[np.ndarray] = []
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            r = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            left, right = self._parse_hands_results(r)
-            joints_list.append(np.concatenate([left, right], axis=0))
-        cap.release()
-        hands.close()
+        try:
+            with mp_hands.Hands(
+                static_image_mode=False, max_num_hands=2,
+                min_detection_confidence=self.min_detection_confidence,
+                min_tracking_confidence=self.min_tracking_confidence,
+            ) as hands:
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    # Resize to speed up without losing relative accuracy
+                    h, w = frame.shape[:2]
+                    max_dim = 480
+                    if max(h, w) > max_dim:
+                        scale = max_dim / max(h, w)
+                        frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                    r = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                    left, right = self._parse_hands_results(r)
+                    joints_list.append(np.concatenate([left, right], axis=0))
+        finally:
+            cap.release()
         if not joints_list:
             return None
         return np.stack(joints_list, axis=0).astype(np.float32)
@@ -165,17 +192,37 @@ class SkeletonExtractor:
         left, right = np.zeros((21,3),np.float32), np.zeros((21,3),np.float32)
         if not (results.multi_hand_landmarks and results.multi_handedness):
             return left, right
+        landmarks_list = []
+        labels = []
         for hlm, hd in zip(results.multi_hand_landmarks, results.multi_handedness):
-            arr = np.array([[l.x,l.y,l.z] for l in hlm.landmark], dtype=np.float32)
-            if hd.classification[0].label == "Left": left = arr
-            else: right = arr
+            arr = np.array([[l.x, l.y, l.z] for l in hlm.landmark], dtype=np.float32)
+            label = hd.classification[0].label
+            landmarks_list.append(arr)
+            labels.append(label)
+        
+        # Conflict resolution if both hands are detected but classified with same label
+        if len(landmarks_list) == 2 and labels[0] == labels[1]:
+            x0 = landmarks_list[0][:, 0].mean()
+            x1 = landmarks_list[1][:, 0].mean()
+            # Smaller x coordinate is Right hand, larger x is Left hand (facing camera view)
+            if x0 < x1:
+                right, left = landmarks_list[0], landmarks_list[1]
+            else:
+                left, right = landmarks_list[0], landmarks_list[1]
+        else:
+            for arr, label in zip(landmarks_list, labels):
+                if label == "Left":
+                    left = arr
+                else:
+                    right = arr
         return left, right
 
     @staticmethod
     def _interpolate_gaps(joints: np.ndarray, max_gap: int = 999) -> np.ndarray:
         result = joints.copy()
         for hand_offset in [0, 21]:
-            nz = np.where(np.any(result[:, hand_offset, :] != 0, axis=1))[0]
+            # Check if any coordinate of the hand's 21 landmarks is non-zero (more robust than checking wrist only)
+            nz = np.where(np.any(result[:, hand_offset : hand_offset + 21, :] != 0, axis=(1, 2)))[0]
             if len(nz) == 0:
                 continue
             first, last = nz[0], nz[-1]
@@ -215,6 +262,10 @@ class SkeletonExtractor:
         if joints.shape[0] > 1:
             motion[1:] = joints[1:] - joints[:-1]
         return motion
+
+
+def _proc_wrapper(args):
+    return BatchSkeletonProcessor._proc(*args)
 
 
 class BatchSkeletonProcessor:
@@ -268,14 +319,11 @@ class BatchSkeletonProcessor:
         if not pending:
             return
         ok = fail = 0
-        with ProcessPoolExecutor(max_workers=self.workers) as pool:
-            futs = {
-                pool.submit(self._proc, v, i["path"], str(self.output_dir), self.ext_params): v
-                for v, i in pending.items()
-            }
+        import multiprocessing
+        tasks = [(v, i["path"], str(self.output_dir), self.ext_params) for v, i in pending.items()]
+        with multiprocessing.Pool(processes=self.workers, maxtasksperchild=100) as pool:
             with tqdm(total=len(pending), desc="Extracting", file=_py_stderr) as pbar:
-                for f in as_completed(futs):
-                    vid, s, n, m = f.result()
+                for vid, s, n, m in pool.imap_unordered(_proc_wrapper, tasks):
                     if s:
                         self.checkpoint["completed"][vid] = {"frames": n}
                         ok += 1
