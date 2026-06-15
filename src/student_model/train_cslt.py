@@ -31,6 +31,9 @@ from torch.utils.data import DataLoader
 from src.common.datasets.cslt_dataset import CSLTDataset, cslt_collate_fn
 from src.student_model.architecture.multi_stream_stgcn import MultiStreamSTGCN
 from src.student_model.architecture.cslt_model import CSLTModel
+from src.student_model.feature_loss import masked_feature_mse_loss
+
+
 class DualLogger(object):
     """
     双向日志记录器，同时将输出流输出到控制台和指定日志文件，并实时刷新。
@@ -124,6 +127,16 @@ def prepare_input(batch, device):
     return joints_split, bones_split, motion_split, input_lengths, gloss_ids, gloss_lengths
 
 
+def scale_lengths_to_time(lengths, source_time, target_time):
+    """
+    将输入序列长度按实际模型输出时间维缩放，用于时序特征 mask。
+    """
+    if source_time <= 0:
+        return torch.zeros_like(lengths)
+    scaled = torch.ceil(lengths.float() * float(target_time) / float(source_time))
+    return scaled.long().clamp(min=0, max=target_time)
+
+
 def main():
     parser = argparse.ArgumentParser(description="CSLT Temporal fine-tuning script with CTC Loss")
     
@@ -148,6 +161,8 @@ def main():
                         help='Enable mixed precision training (AMP) to speed up')
     parser.add_argument('--load_weights', type=str, default=None,
                         help='Path to pretrained weights to load before training (default: None, trains from scratch)')
+    parser.add_argument('--feature_loss_weight', type=float, default=1.0,
+                        help='Weight for masked temporal feature MSE loss. Set to 0 to train with CTC only.')
     
     args = parser.parse_args()
     
@@ -236,6 +251,8 @@ def main():
         
         # 将数据送入 GPU/CPU 并按模型通道需求处理
         joints, bones, motion, input_lengths, gloss_ids, gloss_lengths = prepare_input(debug_batch, device)
+        teacher_feats = debug_batch["teacher_feats"].to(device) if args.feature_loss_weight > 0 else None
+        teacher_lengths = debug_batch["teacher_lengths"].to(device) if args.feature_loss_weight > 0 else None
         
         for epoch in range(args.epochs):
             optimizer.zero_grad()
@@ -244,6 +261,7 @@ def main():
             with torch.cuda.amp.autocast(enabled=args.fp16):
                 outputs = model(joints=joints, bones=bones, motion=motion)
                 ctc_logits = outputs["ctc_logits"]
+                adapted_feat = outputs["adapted_feat"]
             
             # 转换为 FP32 进行 softmax/CTC 计算以防溢出
             ctc_logits_fp32 = ctc_logits.float()
@@ -254,14 +272,34 @@ def main():
             
             # 禁用混合精度计算 CTC Loss 以保证数值稳定
             with torch.cuda.amp.autocast(enabled=False):
-                loss = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
+                ctc_loss_value = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
+                if args.feature_loss_weight > 0:
+                    student_feature_lengths = scale_lengths_to_time(
+                        input_lengths,
+                        source_time=joints.size(2),
+                        target_time=adapted_feat.size(1),
+                    )
+                    feature_loss_value = masked_feature_mse_loss(
+                        adapted_feat.float(),
+                        teacher_feats.float(),
+                        student_lengths=student_feature_lengths,
+                        teacher_lengths=teacher_lengths,
+                    )
+                else:
+                    feature_loss_value = ctc_loss_value.new_zeros(())
+                loss = ctc_loss_value + args.feature_loss_weight * feature_loss_value
             
             # 反向传播与优化
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             
-            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] - CTC Loss: {loss.item():.6f}")
+            print(
+                f"Epoch [{epoch+1:02d}/{args.epochs:02d}] - "
+                f"Total Loss: {loss.item():.6f} | "
+                f"CTC Loss: {ctc_loss_value.item():.6f} | "
+                f"Feature Loss: {feature_loss_value.item():.6f}"
+            )
             
         print("Debug 过拟合训练完成！")
         overfit_path = work_dir / "overfit_model.pt"
@@ -271,6 +309,8 @@ def main():
         print(f"开始正式训练循环 ({args.epochs} Epochs)...")
         for epoch in range(args.epochs):
             epoch_losses = []
+            epoch_ctc_losses = []
+            epoch_feature_losses = []
             for batch_idx, batch in enumerate(dataloader):
                 optimizer.zero_grad()
                 
@@ -281,6 +321,7 @@ def main():
                 with torch.cuda.amp.autocast(enabled=args.fp16):
                     outputs = model(joints=joints, bones=bones, motion=motion)
                     ctc_logits = outputs["ctc_logits"]
+                    adapted_feat = outputs["adapted_feat"]
                 
                 # 转换为 FP32 进行 softmax/CTC 计算以防溢出
                 ctc_logits_fp32 = ctc_logits.float()
@@ -289,7 +330,24 @@ def main():
                 
                 # 禁用混合精度计算 CTC Loss
                 with torch.cuda.amp.autocast(enabled=False):
-                    loss = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
+                    ctc_loss_value = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
+                    if args.feature_loss_weight > 0:
+                        teacher_feats = batch["teacher_feats"].to(device)
+                        teacher_lengths = batch["teacher_lengths"].to(device)
+                        student_feature_lengths = scale_lengths_to_time(
+                            input_lengths,
+                            source_time=joints.size(2),
+                            target_time=adapted_feat.size(1),
+                        )
+                        feature_loss_value = masked_feature_mse_loss(
+                            adapted_feat.float(),
+                            teacher_feats.float(),
+                            student_lengths=student_feature_lengths,
+                            teacher_lengths=teacher_lengths,
+                        )
+                    else:
+                        feature_loss_value = ctc_loss_value.new_zeros(())
+                    loss = ctc_loss_value + args.feature_loss_weight * feature_loss_value
                 
                 # 反向传播与优化
                 scaler.scale(loss).backward()
@@ -297,12 +355,27 @@ def main():
                 scaler.update()
                 
                 epoch_losses.append(loss.item())
+                epoch_ctc_losses.append(ctc_loss_value.item())
+                epoch_feature_losses.append(feature_loss_value.item())
                 
                 if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(dataloader):
-                    print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Batch [{batch_idx+1:03d}/{len(dataloader):03d}] - Loss: {loss.item():.6f}")
+                    print(
+                        f"Epoch [{epoch+1:02d}/{args.epochs:02d}] "
+                        f"Batch [{batch_idx+1:03d}/{len(dataloader):03d}] - "
+                        f"Total Loss: {loss.item():.6f} | "
+                        f"CTC Loss: {ctc_loss_value.item():.6f} | "
+                        f"Feature Loss: {feature_loss_value.item():.6f}"
+                    )
             
             mean_loss = np.mean(epoch_losses)
-            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Finished | Average Loss: {mean_loss:.6f}")
+            mean_ctc_loss = np.mean(epoch_ctc_losses)
+            mean_feature_loss = np.mean(epoch_feature_losses)
+            print(
+                f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Finished | "
+                f"Average Total Loss: {mean_loss:.6f} | "
+                f"Average CTC Loss: {mean_ctc_loss:.6f} | "
+                f"Average Feature Loss: {mean_feature_loss:.6f}"
+            )
             
             # 保存每 Epoch 结束的 checkpoint
             checkpoint_path = work_dir / f"epoch_{epoch+1}_loss_{mean_loss:.4f}.pt"
