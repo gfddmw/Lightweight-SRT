@@ -31,6 +31,7 @@ from torch.utils.data import DataLoader
 from src.common.datasets.cslt_dataset import CSLTDataset, cslt_collate_fn
 from src.student_model.architecture.multi_stream_stgcn import MultiStreamSTGCN
 from src.student_model.architecture.cslt_model import CSLTModel
+from src.student_model.architecture.logit_loss import MultiTaskLoss, SequenceKDLoss
 class DualLogger(object):
     """
     双向日志记录器，同时将输出流输出到控制台和指定日志文件，并实时刷新。
@@ -107,21 +108,26 @@ def prepare_input(batch, device):
     """
     处理输入数据，将 42 个关节点 (包含左右手各 21 个点)
     拆分为左右手两个 instance (M=2)，拼接成形状为 [B, C, T, 21, 2] 的张量。
+    同时返回教师 logits 和教师序列长度用于知识蒸馏。
     """
     joints = batch["joints"]  # [B, C, T, 42, 1]
     bones = batch["bones"]    # [B, C, T, 42, 1]
     motion = batch["motion"]  # [B, C, T, 42, 1]
-    
+
     # 左右手各 21 个点，并在最后一个维度 M 上进行 concat，从而得到 M=2 维
     joints_split = torch.cat([joints[..., :21, :], joints[..., 21:, :]], dim=-1).to(device)
     bones_split = torch.cat([bones[..., :21, :], bones[..., 21:, :]], dim=-1).to(device)
     motion_split = torch.cat([motion[..., :21, :], motion[..., 21:, :]], dim=-1).to(device)
-    
+
     input_lengths = batch["input_lengths"].to(device)
     gloss_ids = batch["gloss_ids"].to(device)
     gloss_lengths = batch["gloss_lengths"].to(device)
-    
-    return joints_split, bones_split, motion_split, input_lengths, gloss_ids, gloss_lengths
+    teacher_logits = batch["teacher_logits"].to(device)
+    teacher_lengths = batch["teacher_lengths"].to(device)
+
+    return (joints_split, bones_split, motion_split,
+            input_lengths, gloss_ids, gloss_lengths,
+            teacher_logits, teacher_lengths)
 
 
 def main():
@@ -148,6 +154,14 @@ def main():
                         help='Enable mixed precision training (AMP) to speed up')
     parser.add_argument('--load_weights', type=str, default=None,
                         help='Path to pretrained weights to load before training (default: None, trains from scratch)')
+
+    # 蒸馏相关参数
+    parser.add_argument('--kd_weight', type=float, default=0.3,
+                        help='KD loss weight (default: 0.3, set 0 to disable)')
+    parser.add_argument('--kd_temperature', type=float, default=5.0,
+                        help='KD temperature for softening (default: 5.0)')
+    parser.add_argument('--ce_weight', type=float, default=0.0,
+                        help='Translation CE loss weight (default: 0.0, reserved for W4)')
     
     args = parser.parse_args()
     
@@ -204,7 +218,7 @@ def main():
         encoder=encoder,
         in_channels=768,
         out_channels=1024,
-        num_classes=7388
+        num_classes=2005
     )
     
     # 4. 加载预训练权重
@@ -219,8 +233,14 @@ def main():
     model.to(device)
     
     # 6. 损失函数与优化器
-    # 词表大小 7387，分类层 num_classes=7388，blank=7387
-    ctc_loss = nn.CTCLoss(blank=7387, zero_infinity=True)
+    # 使用 MultiTaskLoss 组合 CTC + KD + CE
+    multi_task_loss = MultiTaskLoss(
+        ctc_weight=1.0,
+        kd_weight=args.kd_weight,
+        ce_weight=args.ce_weight,
+        kd_temperature=args.kd_temperature,
+        ctc_blank=2004
+    )
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     
     # 混合精度 GradScaler
@@ -230,39 +250,43 @@ def main():
     
     # 7. 开始训练循环
     if args.debug_overfit:
-        # 在 debug 过拟合模式下，我们仅对固定的单个 batch 进行 50 次循环迭代
         print("开始单批次过拟合训练循环 (50 Epochs)...")
         debug_batch = next(iter(dataloader))
-        
-        # 将数据送入 GPU/CPU 并按模型通道需求处理
-        joints, bones, motion, input_lengths, gloss_ids, gloss_lengths = prepare_input(debug_batch, device)
-        
+
+        joints, bones, motion, input_lengths, gloss_ids, gloss_lengths, teacher_logits, teacher_lengths = \
+            prepare_input(debug_batch, device)
+
+        student_lengths_debug = (input_lengths - 1) // 4 + 1
+
         for epoch in range(args.epochs):
             optimizer.zero_grad()
-            
-            # 开启混合精度前向计算
+
             with torch.cuda.amp.autocast(enabled=args.fp16):
                 outputs = model(joints=joints, bones=bones, motion=motion)
                 ctc_logits = outputs["ctc_logits"]
-            
-            # 转换为 FP32 进行 softmax/CTC 计算以防溢出
+
             ctc_logits_fp32 = ctc_logits.float()
-            log_probs = F.log_softmax(ctc_logits_fp32, dim=-1).transpose(0, 1)
-            
-            # 计算 targets_lengths (下采样后的序列长度)
-            targets_lengths = (input_lengths - 1) // 4 + 1
-            
-            # 禁用混合精度计算 CTC Loss 以保证数值稳定
+            teacher_logits_fp32 = teacher_logits.float()
+
             with torch.cuda.amp.autocast(enabled=False):
-                loss = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
-            
-            # 反向传播与优化
+                loss_dict = multi_task_loss(
+                    student_logits=ctc_logits_fp32,
+                    teacher_logits=teacher_logits_fp32,
+                    gloss_ids=gloss_ids,
+                    student_lengths=student_lengths_debug,
+                    teacher_lengths=teacher_lengths,
+                    gloss_lengths=gloss_lengths,
+                )
+                loss = loss_dict['total']
+
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            
-            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] - CTC Loss: {loss.item():.6f}")
-            
+
+            ctc_v = loss_dict['ctc'].item()
+            kd_v = loss_dict.get('kd', torch.tensor(0.0)).item()
+            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] - CTC: {ctc_v:.6f} | KD: {kd_v:.6f} | Total: {loss.item():.6f}")
+
         print("Debug 过拟合训练完成！")
         overfit_path = work_dir / "overfit_model.pt"
         torch.save(model.state_dict(), overfit_path)
@@ -271,55 +295,73 @@ def main():
         print(f"开始正式训练循环 ({args.epochs} Epochs)...")
         for epoch in range(args.epochs):
             epoch_losses = []
+            epoch_ctc_losses = []
+            epoch_kd_losses = []
+
             for batch_idx, batch in enumerate(dataloader):
                 optimizer.zero_grad()
-                
-                # 数据送入设备并处理
-                joints, bones, motion, input_lengths, gloss_ids, gloss_lengths = prepare_input(batch, device)
-                
-                # 开启混合精度前向计算
+
+                joints, bones, motion, input_lengths, gloss_ids, gloss_lengths, teacher_logits, teacher_lengths = \
+                    prepare_input(batch, device)
+
+                student_lengths = (input_lengths - 1) // 4 + 1
+
                 with torch.cuda.amp.autocast(enabled=args.fp16):
                     outputs = model(joints=joints, bones=bones, motion=motion)
                     ctc_logits = outputs["ctc_logits"]
-                
-                # 转换为 FP32 进行 softmax/CTC 计算以防溢出
+
                 ctc_logits_fp32 = ctc_logits.float()
-                log_probs = F.log_softmax(ctc_logits_fp32, dim=-1).transpose(0, 1)
-                targets_lengths = (input_lengths - 1) // 4 + 1
-                
-                # 禁用混合精度计算 CTC Loss
+                teacher_logits_fp32 = teacher_logits.float()
+
                 with torch.cuda.amp.autocast(enabled=False):
-                    loss = ctc_loss(log_probs, gloss_ids, targets_lengths, gloss_lengths)
-                
-                # 反向传播与优化
+                    loss_dict = multi_task_loss(
+                        student_logits=ctc_logits_fp32,
+                        teacher_logits=teacher_logits_fp32,
+                        gloss_ids=gloss_ids,
+                        student_lengths=student_lengths,
+                        teacher_lengths=teacher_lengths,
+                        gloss_lengths=gloss_lengths,
+                    )
+                    loss = loss_dict['total']
+
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
                 scaler.update()
-                
+
                 epoch_losses.append(loss.item())
-                
+                epoch_ctc_losses.append(loss_dict['ctc'].item())
+                kd_val = loss_dict.get('kd', torch.tensor(0.0)).item()
+                epoch_kd_losses.append(kd_val)
+
                 if (batch_idx + 1) % 10 == 0 or (batch_idx + 1) == len(dataloader):
-                    print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Batch [{batch_idx+1:03d}/{len(dataloader):03d}] - Loss: {loss.item():.6f}")
-            
+                    print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] "
+                          f"Batch [{batch_idx+1:03d}/{len(dataloader):03d}] "
+                          f"- CTC: {loss_dict['ctc'].item():.6f} "
+                          f"| KD: {kd_val:.6f} "
+                          f"| Total: {loss.item():.6f}")
+
             mean_loss = np.mean(epoch_losses)
-            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Finished | Average Loss: {mean_loss:.6f}")
-            
-            # 保存每 Epoch 结束的 checkpoint
+            mean_ctc = np.mean(epoch_ctc_losses)
+            mean_kd = np.mean(epoch_kd_losses)
+            print(f"Epoch [{epoch+1:02d}/{args.epochs:02d}] Finished | "
+                  f"Avg CTC: {mean_ctc:.6f} | Avg KD: {mean_kd:.6f} | Avg Total: {mean_loss:.6f}")
+
             checkpoint_path = work_dir / f"epoch_{epoch+1}_loss_{mean_loss:.4f}.pt"
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': mean_loss,
+                'ctc_loss': mean_ctc,
+                'kd_loss': mean_kd,
             }, checkpoint_path)
             print(f"已保存 Checkpoint 至: {checkpoint_path}")
-            
-            # 保存 Best 模型
+
             if mean_loss < best_loss:
                 best_loss = mean_loss
                 best_path = work_dir / "best_model.pt"
                 torch.save(model.state_dict(), best_path)
-                print(f"更新最佳模型 (Best Loss: {best_loss:.6f}) 并保存至: {best_path}")
+                print(f"更新最佳模型 (Best Total Loss: {best_loss:.6f}) 并保存至: {best_path}")
 
 
 if __name__ == '__main__':

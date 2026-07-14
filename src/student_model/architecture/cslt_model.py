@@ -41,11 +41,11 @@ class TemporalAdapter(nn.Module):
 class CTCHead(nn.Module):
     """
     CTCHead 类 (nn.Module)：
-    - 输入维度 in_channels (默认 1024)，输出维度 num_classes (默认 7388，即词表大小 7387 + 1 维 CTC blank)。
+    - 输入维度 in_channels (默认 1024)，输出维度 num_classes (默认 2005，即词表大小 2004 + 1 维 CTC blank)。
     - 内部仅含 nn.Linear(in_channels, num_classes) 全连接层。
     - 输入 x 维度为 [B, T_out, in_channels]，输出 [B, T_out, num_classes]。
     """
-    def __init__(self, in_channels=1024, num_classes=7388):
+    def __init__(self, in_channels=1024, num_classes=2005):
         super().__init__()
         self.linear = nn.Linear(in_channels, num_classes)
 
@@ -65,7 +65,7 @@ class CSLTModel(nn.Module):
       3. 将 adapted_feat 送入 CTCHead，获得 [B, T_out, num_classes] 的 Logits，记录为 ctc_logits。
       4. 返回一个字典：{"adapted_feat": adapted_feat, "ctc_logits": ctc_logits}。
     """
-    def __init__(self, encoder, in_channels=768, out_channels=1024, num_classes=7388):
+    def __init__(self, encoder, in_channels=768, out_channels=1024, num_classes=2005):
         super().__init__()
         self.encoder = encoder
         self.temporal_adapter = TemporalAdapter(input_channels=in_channels, output_channels=out_channels)
@@ -76,7 +76,7 @@ class CSLTModel(nn.Module):
         feat = self.encoder(joints=joints, bones=bones, motion=motion, return_sequence=True)
         # 时序下采样和特征映射 [B, T_out, out_channels] (默认 out_channels = 1024)
         adapted_feat = self.temporal_adapter(feat)
-        # 获取 CTC 预测 logits [B, T_out, num_classes] (默认 num_classes = 7388)
+        # 获取 CTC 预测 logits [B, T_out, num_classes] (默认 num_classes = 2005)
         ctc_logits = self.ctc_head(adapted_feat)
         
         return {
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         encoder=encoder,
         in_channels=768,
         out_channels=1024,
-        num_classes=7388
+        num_classes=2005
     )
     
     # 3. 构造虚拟的多流输入数据
@@ -132,10 +132,10 @@ if __name__ == '__main__':
     ctc_logits = outputs["ctc_logits"]
     
     print(f"adapted_feat shape: {adapted_feat.shape} (Expected: [2, 25, 1024])")
-    print(f"ctc_logits shape: {ctc_logits.shape} (Expected: [2, 25, 7388])")
+    print(f"ctc_logits shape: {ctc_logits.shape} (Expected: [2, 25, 2005])")
     
     # 自检 assertion
     assert adapted_feat.shape == (B, 25, 1024), f"adapted_feat shape mismatch: {adapted_feat.shape}"
-    assert ctc_logits.shape == (B, 25, 7388), f"ctc_logits shape mismatch: {ctc_logits.shape}"
+    assert ctc_logits.shape == (B, 25, 2005), f"ctc_logits shape mismatch: {ctc_logits.shape}"
     
     print("CSLTModel unit test passed successfully!")

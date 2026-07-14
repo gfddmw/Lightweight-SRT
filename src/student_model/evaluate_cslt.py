@@ -59,7 +59,7 @@ def calculate_edit_distance(reference, hypothesis):
     return dp[ref_len][hyp_len]
 
 
-def ctc_greedy_decode(ctc_logits, input_lengths, blank_id=7387):
+def ctc_greedy_decode(ctc_logits, input_lengths, blank_id=2004):
     """
     CTC 贪婪解码算法。
     ctc_logits: [B, T_out, num_classes] 的 Tensor。
@@ -139,7 +139,7 @@ def main():
         encoder=encoder,
         in_channels=768,
         out_channels=1024,
-        num_classes=7388
+        num_classes=2005
     )
     
     # 加载权重
@@ -168,7 +168,7 @@ def main():
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Evaluating"):
             # 数据送入设备并转换形状
-            joints, bones, motion, input_lengths, gloss_ids, gloss_lengths = prepare_input(batch, device)
+            joints, bones, motion, input_lengths, gloss_ids, gloss_lengths, teacher_logits, teacher_lengths = prepare_input(batch, device)
             
             # 前向计算
             with torch.cuda.amp.autocast(enabled=args.fp16):
@@ -176,8 +176,8 @@ def main():
                 ctc_logits = outputs["ctc_logits"]
             
             # 解码
-            # blank_id 为词表大小 7387
-            decoded_preds = ctc_greedy_decode(ctc_logits, input_lengths, blank_id=7387)
+            # blank_id 为词表大小 2004
+            decoded_preds = ctc_greedy_decode(ctc_logits, input_lengths, blank_id=2004)
             
             # 对比并累加编辑距离
             for idx in range(len(decoded_preds)):
