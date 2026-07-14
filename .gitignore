@@ -19,7 +19,7 @@ android/script
 scripts/presentation
 /visualizations
 /data
-
+xmzl
 # 忽略数据文件夹 (如果之前没加)
 .idea/
 
@@ -45,3 +45,4 @@ local.properties
 *.html
 *.log
 .superpowers
+.claude/
